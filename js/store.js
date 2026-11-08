@@ -27,16 +27,18 @@
 
   // --- IndexedDB (失敗時はメモリ保持) ---
   let dbp = null;
-  const mem = { projects: new Map(), products: new Map() };
+  const mem = { projects: new Map(), products: new Map(), photos: new Map() };
   function db() {
     if (!dbp) {
       dbp = new Promise((resolve) => {
         try {
-          const req = indexedDB.open('naiso-zumen', 1);
+          const req = indexedDB.open('naiso-zumen', 2);
           req.onupgradeneeded = () => {
             const d = req.result;
             if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects', { keyPath: 'id' });
             if (!d.objectStoreNames.contains('products')) d.createObjectStore('products', { keyPath: 'key' });
+            // 現場写真(縮小したJPEG)。図面データとは別に保存し、元に戻す履歴を重くしない
+            if (!d.objectStoreNames.contains('photos')) d.createObjectStore('photos', { keyPath: 'id' });
           };
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => resolve(null);
@@ -81,6 +83,20 @@
     putProduct(rec) {
       return tx('products', 'readwrite', (s) => (s ? s.put(rec) : mem.products.set(rec.key, rec)));
     },
+    // rec = { id, projectId, data(dataURL), w, h, createdAt }
+    putPhoto(rec) {
+      return tx('photos', 'readwrite', (s) => (s ? s.put(rec) : mem.photos.set(rec.id, rec)));
+    },
+    getPhoto(id) {
+      return tx('photos', 'readonly', (s) => (s ? s.get(id) : { result: mem.photos.get(id) }));
+    },
+    // keep を渡すと、その図面の写真のうち keep に無いものだけ削除する
+    async deletePhotosOf(projectId, keep) {
+      const all = await tx('photos', 'readonly', (s) => (s ? s.getAll() : { result: [...mem.photos.values()] }));
+      const ids = (all || []).filter((r) => r.projectId === projectId && !(keep && keep.has(r.id))).map((r) => r.id);
+      if (!ids.length) return;
+      await tx('photos', 'readwrite', (s) => { for (const id of ids) s ? s.delete(id) : mem.photos.delete(id); return null; });
+    },
   };
 
   NZ.uid = function () {
@@ -111,9 +127,11 @@
       columns: [],
       fixtures: [],
       labels: [],
+      photos: [], // 現場写真の記号 {id, no, x, y, rot(撮影方向 0=上), note, img}
       dims: [],
       zones: [],
       floors: [],
+      est: { items: {}, extra: [], taxRate: 10 }, // 概算見積(図面の行の上書き・手入力の行・税率)
       grid: { xs: [], ys: [], visible: true, ext: 1500 },
     };
   };

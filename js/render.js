@@ -368,6 +368,7 @@
     for (const c of p.columns) { add(c.x - c.w / 2, c.y - c.d / 2); add(c.x + c.w / 2, c.y + c.d / 2); }
     for (const f of p.fixtures) { const r = Math.hypot(f.w, f.d) / 2; add(f.x, f.y, r); }
     for (const l of p.labels) add(l.x, l.y, 300);
+    for (const ph of p.photos || []) add(ph.x, ph.y, 300);
     for (const d of p.dims) { add(d.x1, d.y1); add(d.x2, d.y2); }
     if (includeZones) for (const z of p.zones) { add(z.x, z.y); add(z.x + z.w, z.y + z.h); }
     for (const z of p.floors || []) { add(z.x, z.y); add(z.x + z.w, z.y + z.h); }
@@ -462,6 +463,22 @@
     return `<style>${scoped}</style>`;
   };
 
+  // 写真の記号: 番号入りの丸 + 撮影方向の扇形。大きさは紙面mm × S
+  NZ.PHOTO_R = 3.2; // 丸の半径(紙面mm)
+  function photoSymbol(ph, S) {
+    const r = NZ.PHOTO_R * S, R = r * 3.2, half = (28 * Math.PI) / 180;
+    const a = ((+ph.rot || 0) * Math.PI) / 180;
+    const pt = (ang, rr) => `${r2(ph.x + Math.sin(ang) * rr)},${r2(ph.y - Math.cos(ang) * rr)}`;
+    const fan = `M${pt(a - half, r * 0.9)}L${pt(a - half, R)}A${r2(R)},${r2(R)} 0 0 1 ${pt(a + half, R)}L${pt(a + half, r * 0.9)}Z`;
+    const tip = `M${pt(a, R + r * 0.9)}L${pt(a - 0.16, R - r * 0.1)}L${pt(a + 0.16, R - r * 0.1)}Z`;
+    return `<g data-id="${ph.id}" class="nz-photo">` +
+      `<path d="${fan}" fill="rgba(30,111,217,.16)" stroke="#1e6fd9" stroke-width="${r2(0.18 * S)}"/>` +
+      `<path d="${tip}" fill="#1e6fd9"/>` +
+      `<circle cx="${r2(ph.x)}" cy="${r2(ph.y)}" r="${r2(r)}" fill="#1e6fd9" stroke="#fff" stroke-width="${r2(0.35 * S)}"/>` +
+      `<text x="${r2(ph.x)}" y="${r2(ph.y + r * 0.36)}" font-size="${r2(r * 1.05)}" font-weight="700" text-anchor="middle" fill="#fff" font-family="${FONT}">${esc(ph.no)}</text></g>`;
+  }
+  NZ.photoSymbol = photoSymbol;
+
   NZ.renderModel = function (p, S, opts = {}) {
     const o = Object.assign({ zones: true, grid: true, dims: true, detected: true, prefix: 'nz' }, opts);
     const ext = endExtensions(p);
@@ -539,7 +556,9 @@
       if (l.sub) labels += `<text x="${r2(l.x)}" y="${r2(l.y + fs * 1.15)}" class="nz-label" font-size="${r2(fs * 0.7)}">${esc(l.sub)}</text>`;
       labels += '</g>';
     }
-    return `<g class="${o.prefix}-root">` + NZ.styleBlock(S, o.prefix) + floors + zones + grid + `<g>${outl}</g><g>${fill}</g><g>${hatch}</g>` + sym + fx + dims + labels + det + '</g>';
+    let photos = '';
+    if (o.photos !== false) for (const ph of p.photos || []) photos += photoSymbol(ph, S);
+    return `<g class="${o.prefix}-root">` + NZ.styleBlock(S, o.prefix) + floors + zones + grid + `<g>${outl}</g><g>${fill}</g><g>${hatch}</g>` + sym + fx + dims + labels + photos + det + '</g>';
   };
 
   // ---------- 用紙(図面枠・表題欄・スケールバー) ----------
@@ -560,22 +579,15 @@
     return NZ.SCALES[NZ.SCALES.length - 1];
   };
 
-  NZ.renderSheet = function (p, opts = {}) {
-    const m = p.meta;
-    const [W, H] = NZ.PAPERS[m.paper] || NZ.PAPERS.A3;
-    const S = NZ.sheetScale(p);
+  // 用紙の枠・表題欄・スケールバー・方位・備考(平面図と展開図で共用)
+  NZ.sheetFrame = function (m, W, H, S, opts = {}) {
     const TB = 40, TW = 190, M = 10;
-    const area = { x: M, y: M, w: W - 2 * M, h: H - 2 * M - TB };
-    const b = NZ.annotatedBBox(p, S);
-    const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    const tx = area.x + area.w / 2 - cx / S, ty = area.y + area.h / 2 - cy / S;
     const T = (x, y, txt, size, anchor = 'start', weight = 400, maxW = 0) => {
       const fs = maxW ? fitSize(txt, maxW, size) : size;
       return `<text x="${r2(x)}" y="${r2(y)}" font-size="${r2(fs)}" text-anchor="${anchor}" font-weight="${weight}" font-family="${FONT}" fill="#111">${esc(txt)}</text>`;
     };
-    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">`;
-    s += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
-    s += `<g transform="translate(${r2(tx)} ${r2(ty)}) scale(${1 / S})">${NZ.svgDefs(S, 'sh')}${NZ.renderModel(p, S, { zones: !!m.printZones, detected: false, prefix: 'sh' })}</g>`;
+    m = Object.assign({}, m, opts.title !== undefined ? { title: opts.title } : {});
+    let s = '<g class="nz-frame">';
     // 枠
     s += `<rect x="${M}" y="${M}" width="${W - 2 * M}" height="${H - 2 * M}" fill="none" stroke="#111" stroke-width="0.5"/>`;
     const sy = H - M - TB;
@@ -618,7 +630,7 @@
     }
     // 方位
     const nx = bx + bl + 18, ny = sy + 20;
-    if (nx + 10 < x0) {
+    if (opts.north !== false && nx + 10 < x0) {
       s += `<g transform="translate(${r2(nx)} ${r2(ny)}) rotate(${+m.north || 0})"><circle r="7" fill="none" stroke="#111" stroke-width="0.25"/><path d="M0,-6.5 L2.6,4 L0,2.4 L-2.6,4Z" fill="#111"/>${T(0, -8.2, 'N', 3, 'middle', 700)}</g>`;
     }
     // 備考
@@ -632,6 +644,22 @@
         lines.slice(0, 11).forEach((l, i) => (s += T(nxs, sy + 5 + i * 3.2, l, 2.3)));
       }
     }
+    return s + '</g>';
+  };
+
+  NZ.renderSheet = function (p, opts = {}) {
+    const m = p.meta;
+    const [W, H] = NZ.PAPERS[m.paper] || NZ.PAPERS.A3;
+    const S = NZ.sheetScale(p);
+    const TB = 40, M = 10;
+    const area = { x: M, y: M, w: W - 2 * M, h: H - 2 * M - TB };
+    const b = NZ.annotatedBBox(p, S);
+    const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+    const tx = area.x + area.w / 2 - cx / S, ty = area.y + area.h / 2 - cy / S;
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">`;
+    s += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+    s += `<g transform="translate(${r2(tx)} ${r2(ty)}) scale(${1 / S})">${NZ.svgDefs(S, 'sh')}${NZ.renderModel(p, S, { zones: !!m.printZones, detected: false, prefix: 'sh' })}</g>`;
+    s += NZ.sheetFrame(m, W, H, S);
     return { svg: s + '</svg>', S, W, H, tx, ty };
   };
 })();

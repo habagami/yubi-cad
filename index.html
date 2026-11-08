@@ -5,43 +5,68 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#1f2a37">
-  <title>内装図面メーカー</title>
+  <meta name="theme-color" content="#ffffff">
+  <meta name="color-scheme" content="light">
+  <title>YUBI CAD</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- 起動アニメーション:朱の点が部屋の線をなぞってロゴができる -->
+  <div id="splash" aria-label="YUBI CAD">
+    <div class="sp-lockup">
+      <svg class="sp-mark" viewBox="0 0 120 120" aria-hidden="true">
+        <path class="sp-line" d="M92 60V30H28v62h34" fill="none" stroke="#1F2A37" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+        <path class="sp-rest" d="M77 92h15V72" fill="none" stroke="#1F2A37" stroke-width="3.6" stroke-linecap="round" stroke-dasharray="0.1 7.4" opacity="0"/>
+        <circle class="sp-ring" cx="62" cy="92" r="8.5" fill="none" stroke="#E2552D" stroke-width="2.6" opacity="0"/>
+        <circle class="sp-dot" cx="92" cy="60" r="8.5" fill="#E2552D"/>
+      </svg>
+      <div class="sp-words">
+        <img src="wordmark.svg" alt="YUBI CAD" class="sp-wordmark">
+        <div class="sp-tag">指でなぞって、内装図面</div>
+      </div>
+    </div>
+  </div>
+
   <div id="app">
     <header id="topbar">
       <button id="btn-menu" class="icon-btn" title="メニュー" aria-label="メニュー">
-        <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-      <button id="proj-name" class="proj-name" title="図面情報"></button>
+      <img src="icon.svg" alt="" class="top-logo">
+      <button id="proj-name" class="proj-name" title="図面の名前・表題欄"></button>
+      <span id="edition" class="edition-badge" hidden></span>
       <span id="save-state" class="save-state"></span>
       <div class="spacer"></div>
-      <div class="seg-switch" id="mode-switch">
-        <button data-mode="draw" class="on">作図</button>
-        <button data-mode="sheet">用紙</button>
+      <div class="seg-switch view-tabs" id="view-switch">
+        <button data-view="plan" class="on"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 12h7v8M14 4v6h6"/></svg><span>平面図</span></button>
+        <button data-view="elev"><svg viewBox="0 0 24 24"><path d="M3 20h18M5 20V8h14v12"/><rect x="8" y="12" width="4" height="8"/><rect x="14" y="11" width="3" height="3"/></svg><span>展開図</span></button>
+        <button data-view="est"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>見積</span></button>
       </div>
-      <button id="btn-check" class="text-btn check-btn" title="寸法チェック">チェック <span id="check-badge" class="badge"></span></button>
-      <button id="btn-preview" class="text-btn" title="印刷プレビュー">プレビュー</button>
+      <div class="spacer"></div>
+      <button id="btn-check" class="text-btn check-btn" title="寸法チェック"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg><span class="lbl">チェック</span><span id="check-badge" class="badge"></span></button>
+      <button id="btn-preview" class="text-btn out-btn" title="印刷・保存"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3"/><rect x="7" y="14" width="10" height="7"/></svg><span class="lbl">印刷・保存</span></button>
+      <span class="top-sep"></span>
       <button id="btn-undo" class="icon-btn" title="元に戻す" aria-label="元に戻す"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2"/></svg></button>
       <button id="btn-redo" class="icon-btn" title="やり直し" aria-label="やり直し"><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h2"/></svg></button>
-      <button id="btn-fit" class="icon-btn" title="全体表示" aria-label="全体表示"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+      <button id="btn-fit" class="icon-btn" title="全体を表示" aria-label="全体を表示"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
     </header>
 
     <nav id="tools">
-      <button data-tool="select" class="on"><svg viewBox="0 0 24 24"><path d="M5 3l13 8-6 1.5L9 19z"/></svg><span>選択</span></button>
-      <button data-tool="wall"><svg viewBox="0 0 24 24"><path d="M3 18L20 5" stroke-width="3.5"/><path d="M4 21c4-2 9-9 16-12" stroke-dasharray="2 2"/></svg><span>壁なぞり</span></button>
+      <button data-tool="select" class="on"><svg viewBox="0 0 24 24"><path d="M6 3l12 8-5.5 1.5L9.5 19z"/></svg><span>選ぶ</span></button>
+      <button data-tool="wall" class="tool-main"><svg viewBox="0 0 24 24"><path d="M19 9V5H5v14h8" stroke-width="2.8"/><path d="M16 19h3v-3" stroke-dasharray="0.1 3.2" stroke-width="2.2"/><circle cx="13" cy="19" r="2.6" class="dot"/></svg><span>壁をなぞる</span></button>
       <button data-tool="column"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10"/><path d="M7 7l10 10M17 7L7 17"/></svg><span>柱</span></button>
+      <button data-tool="dim"><svg viewBox="0 0 24 24"><path d="M3 12h18M3 8v8M21 8v8M6 10l-2 2 2 2M18 10l2 2-2 2"/></svg><span>寸法</span></button>
+      <button data-tool="text"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg><span>部屋名</span></button>
+      <div class="tool-sep"></div>
       <button data-tool="fixture"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><ellipse cx="12" cy="13" rx="4" ry="3"/></svg><span>設備</span></button>
       <button data-tool="furniture"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="8" rx="1"/><path d="M7 16v3M17 16v3M5 8V5h14v3"/></svg><span>家具</span></button>
-      <button data-tool="dim"><svg viewBox="0 0 24 24"><path d="M3 12h18M3 8v8M21 8v8M6 10l-2 4M20 10l-2 4"/></svg><span>寸法</span></button>
-      <button data-tool="text"><svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14"/></svg><span>室名</span></button>
-      <button data-tool="zone"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><path d="M8 15c2-4 6-4 8 0"/></svg><span>水回り</span></button>
       <button data-tool="floor"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14"/><path d="M3 9.7h18M3 14.3h18M9 5v4.7M15 9.7v4.6M8 14.3V19"/></svg><span>床</span></button>
+      <button data-tool="zone"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><path d="M12 8c-2 3-3 4.5-3 6a3 3 0 0 0 6 0c0-1.5-1-3-3-6z"/></svg><span>水回り</span></button>
+      <div class="tool-sep"></div>
+      <button data-tool="photo"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>写真</span></button>
       <button data-tool="calib"><svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/></svg><span>縮尺合せ</span></button>
     </nav>
 
@@ -54,53 +79,96 @@
         </g>
       </svg>
       <div id="hint" class="hint"></div>
+      <!-- はじめての図面:最初にやることを大きなボタンで -->
+      <div id="welcome" class="welcome hidden">
+        <div class="wc-card">
+          <img src="icon.svg" alt="" class="wc-logo">
+          <h2>はじめましょう</h2>
+          <button data-wc="wall" class="wc-btn primary"><svg viewBox="0 0 24 24"><path d="M19 9V5H5v14h8"/><circle cx="13" cy="19" r="2.4" fill="currentColor" stroke="none"/></svg><span><b>壁をなぞって描く</b><small>測った壁を、ペンや指でなぞります</small></span></button>
+          <button data-wc="image" class="wc-btn"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span><b>間取り図を撮る・読み込む</b><small>下に敷いて、なぞりやすくします</small></span></button>
+          <div class="wc-sub">
+            <button data-wc="projects">図面一覧</button>
+            <button data-wc="help">使い方</button>
+          </div>
+        </div>
+      </div>
+      <section id="est" class="elev est hidden">
+        <div class="elev-bar"><b class="bar-title">仕上表・概算見積</b><span class="spacer"></span>
+          <button data-a="csv">Excel用に保存</button>
+          <button data-a="print" class="primary">印刷・PDF</button></div>
+        <div id="est-body" class="est-body"></div>
+      </section>
+      <section id="elev" class="elev hidden">
+        <div class="elev-bar">
+          <label class="room-pick">部屋 <select id="elev-room"></select></label>
+          <span id="elev-info" class="elev-info"></span>
+          <span class="spacer"></span>
+          <button data-ev="png">画像</button>
+          <button data-ev="svg">SVG</button>
+          <button data-ev="dxf">CAD(DXF)</button>
+          <button data-ev="print" class="primary">印刷・PDF</button>
+        </div>
+        <div id="elev-sheet" class="elev-sheet"></div>
+      </section>
       <div id="selbar" class="selbar hidden"></div>
       <aside id="issues" class="issues hidden">
         <div class="issues-head"><b>寸法チェック</b><span id="issues-sum" class="issues-sum"></span><button id="issues-close" class="icon-btn" aria-label="閉じる"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
         <div id="issues-list" class="issues-list"></div>
         <div class="issues-foot"><button id="issues-unignore">無視した項目を戻す</button><button id="issues-print">要再測リストを印刷</button></div>
       </aside>
+      <!-- 表示の切り替え(下のバーの「表示」から開く) -->
+      <div id="layers" class="layers hidden">
+        <div class="layers-head">図面に表示するもの</div>
+        <label class="lay"><input type="checkbox" id="lay-under" checked><span>下図(間取り図)</span></label>
+        <label class="lay"><input type="checkbox" id="lay-dims" checked><span>寸法</span></label>
+        <label class="lay"><input type="checkbox" id="lay-grid" checked><span>通り芯</span></label>
+        <label class="lay"><input type="checkbox" id="lay-zones" checked><span>水回りの範囲</span></label>
+        <label class="lay"><input type="checkbox" id="lay-photos" checked><span>写真の記号</span></label>
+        <label class="lay"><input type="checkbox" id="lay-check" checked><span>チェックの注意</span></label>
+      </div>
     </main>
 
     <footer id="status">
-      <label class="tg"><input type="checkbox" id="opt-finger"><span>指で描く</span></label>
-      <label class="tg"><input type="checkbox" id="opt-ortho" checked><span>直交</span></label>
-      <label class="tg"><input type="checkbox" id="opt-snap" checked><span>スナップ</span></label>
-      <span class="sep"></span>
-      <label class="tg"><input type="checkbox" id="lay-under" checked><span>下図</span></label>
-      <label class="tg"><input type="checkbox" id="lay-grid" checked><span>通り芯</span></label>
-      <label class="tg"><input type="checkbox" id="lay-dims" checked><span>寸法</span></label>
-      <label class="tg"><input type="checkbox" id="lay-zones" checked><span>水回り範囲</span></label>
-      <label class="tg"><input type="checkbox" id="lay-check" checked><span>注意表示</span></label>
+      <label class="tg"><input type="checkbox" id="opt-finger"><span><svg viewBox="0 0 24 24"><path d="M9 11V5a2 2 0 0 1 4 0v5l4.2.9a2.5 2.5 0 0 1 1.9 2.9L18 20H10l-4-5a1.8 1.8 0 0 1 2.7-2.3L9 13"/></svg>指で描く</span></label>
+      <label class="tg"><input type="checkbox" id="opt-ortho" checked><span><svg viewBox="0 0 24 24"><path d="M5 4v15h15"/><path d="M5 14h5v5" stroke-width="1.6"/></svg>まっすぐ</span></label>
+      <label class="tg"><input type="checkbox" id="opt-snap" checked><span><svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4z"/></svg>吸着</span></label>
+      <button id="btn-layers" class="tg-btn"><svg viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/></svg>表示</button>
       <div class="spacer"></div>
       <span id="info" class="info"></span>
+      <div class="seg-switch mode-tabs" id="mode-switch">
+        <button data-mode="draw" class="on">描く</button>
+        <button data-mode="sheet">用紙で見る</button>
+      </div>
     </footer>
   </div>
 
   <div id="menu" class="drawer hidden">
     <div class="drawer-panel">
-      <div class="drawer-head">内装図面メーカー <span class="beta-tag">β版</span></div>
+      <div class="drawer-head"><img src="icon.svg" alt="" class="drawer-logo"><span><b>YUBI <em>CAD</em></b><small>指でなぞって、内装図面</small></span></div>
       <div class="menu-group">図面</div>
-      <button data-act="projects">図面一覧・新規作成</button>
-      <button data-act="title">図面情報(表題欄)</button>
-      <button data-act="elevation">展開図を作成</button>
-      <div class="menu-group">下図</div>
-      <button data-act="load-image">下図画像を読み込む / 撮影</button>
-      <button data-act="underlay">下図の表示設定</button>
-      <button data-act="detect">構造壁・柱を自動検出(オフライン)</button>
-      <button data-act="confirm-all">検出結果をすべて確定</button>
-      <button data-act="delete-detected">未確定の検出結果を削除</button>
+      <button data-act="projects">図面一覧・新しく作る</button>
+      <button data-act="title">図面の名前・表題欄</button>
+      <button data-act="elevation">展開図を見る</button>
+      <div class="menu-group">下図(間取り図)</div>
+      <button data-act="load-image">間取り図を撮る・読み込む</button>
+      <button data-act="underlay">下図の見え方</button>
+      <button data-act="detect">壁・柱を自動で見つける</button>
+      <button data-act="ai" data-ai>AIで図面を読み取る</button>
+      <button data-act="confirm-all">見つけた線をすべて確定</button>
+      <button data-act="delete-detected">未確定の線を消す</button>
       <div class="menu-group">作図</div>
-      <button data-act="grid">通り芯(A,B,C / 1,2,3)の設定</button>
-      <div class="menu-group">出力</div>
+      <button data-act="grid">通り芯の設定</button>
+      <div class="menu-group">印刷・保存</div>
       <button data-act="preview">印刷プレビュー</button>
-      <button data-act="print">印刷 / PDF保存</button>
-      <button data-act="png">PNG画像で保存</button>
+      <button data-act="print">印刷・PDF</button>
+      <button data-act="photo-list">写真台帳を印刷</button>
+      <button data-act="png">画像(PNG)で保存</button>
       <button data-act="svg">SVGで保存</button>
-      <button data-act="json-save">データ書き出し(.json)</button>
-      <button data-act="json-load">データ読み込み(.json)</button>
+      <button data-act="dxf">CAD用(DXF・JW-CAD)で保存</button>
+      <button data-act="json-save">データを書き出す</button>
+      <button data-act="json-load">データを読み込む</button>
       <div class="menu-group">その他</div>
-      <button data-act="settings">設定(会社名・既定値)</button>
+      <button data-act="settings">設定(会社名など)</button>
       <button data-act="help">使い方</button>
     </div>
   </div>
@@ -110,12 +178,19 @@
   <input type="file" id="file-img" accept="image/*" hidden>
   <input type="file" id="file-json" accept=".json,application/json" hidden>
 
+  <script src="js/splash.js"></script>
+  <script src="js/config.js"></script>
   <script src="js/store.js"></script>
   <script src="js/catalog.js"></script>
   <script src="js/render.js"></script>
   <script src="js/solve.js"></script>
   <script src="js/detect.js"></script>
   <script src="js/check.js"></script>
+  <script src="js/elevation.js"></script>
+  <script src="js/estimate.js"></script>
+  <script src="js/dxf.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/photomeasure.js"></script>
 </body>
 </html>

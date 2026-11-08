@@ -4,9 +4,12 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = NZ.esc;
+  const AI_ON = !(NZ.EDITION && NZ.EDITION.aiEnabled === false); // js/config.js で切り替え
   const r2 = (n) => Math.round(n * 100) / 100;
 
   const st = {
+    view: 'plan', // plan=平面図 / elev=展開図
+    elevRoom: null,
     project: null,
     settings: NZ.loadSettings(),
     views: { draw: { cx: 5000, cy: 3500, zoom: 0.08 }, sheet: { cx: 210, cy: 148, zoom: 2 } },
@@ -53,6 +56,14 @@
     if (added.length) toast(`⚠ 辻褄の合わない寸法があります: ${added[0].msg}${added.length > 1 ? ` ほか${added.length - 1}件` : ''}`, 5000);
     scheduleSave();
   }
+  // 図面の形が変わらない変更(見積の入力など): 履歴に積んで保存するだけで、画面は描き直さない
+  function commitData() {
+    st.hist = st.hist.slice(0, st.hi + 1);
+    st.hist.push(snap());
+    if (st.hist.length > 80) st.hist.shift();
+    st.hi = st.hist.length - 1;
+    scheduleSave();
+  }
   function restore(i) {
     const p = JSON.parse(st.hist[i]);
     if (p.underlay) p.underlay.src = st.underSrc;
@@ -80,7 +91,7 @@
   }
 
   // ---------- 要素検索 ----------
-  const COLLS = ['walls', 'columns', 'fixtures', 'labels', 'dims', 'zones', 'floors'];
+  const COLLS = ['walls', 'columns', 'fixtures', 'labels', 'photos', 'dims', 'zones', 'floors'];
   function findEl(id) {
     for (const c of COLLS) {
       const el = P()[c].find((e) => e.id === id);
@@ -146,6 +157,7 @@
       $('#g-model').innerHTML = NZ.svgDefs(st.S, 'ed') + NZ.renderModel(P(), st.S, {
         prefix: 'ed',
         zones: $('#lay-zones').checked,
+        photos: $('#lay-photos').checked,
         grid: $('#lay-grid').checked,
         dims: $('#lay-dims').checked,
       });
@@ -157,6 +169,9 @@
     renderOverlay();
     renderSelbar();
     updateInfo();
+    updateWelcome();
+    if (st.view === 'elev') renderElev();
+    if (st.view === 'est') NZ.renderEstimate();
   }
 
   function renderOverlay() {
@@ -168,15 +183,15 @@
       const f = findEl(st.sel);
       if (f) {
         const e = f.el;
-        const sty = `fill="none" stroke="#1e6fd9" stroke-width="${px(2)}"`;
+        const sty = `fill="none" stroke="#E2552D" stroke-width="${px(2)}"`;
         if (f.coll === 'walls') {
           const fr = NZ.wallFrame(e), off = NZ.wallOffset(e), t = e.thick;
           const q = (s0, k) => ({ x: e.x1 + fr.u.x * s0 + fr.n.x * k, y: e.y1 + fr.u.y * s0 + fr.n.y * k });
           const pts = [q(0, off - t / 2), q(fr.L, off - t / 2), q(fr.L, off + t / 2), q(0, off + t / 2)];
           s += `<polygon points="${pts.map((p) => `${r2(p.x)},${r2(p.y)}`).join(' ')}" ${sty} fill-opacity=".1"/>`;
-          s += `<circle cx="${e.x1}" cy="${e.y1}" r="${px(11)}" fill="#fff" stroke="#1e6fd9" stroke-width="${px(2.5)}"/>`;
-          s += `<circle cx="${e.x2}" cy="${e.y2}" r="${px(11)}" fill="#1e6fd9" stroke="#fff" stroke-width="${px(2)}"/>`;
-          s += `<text x="${e.x1}" y="${e.y1 - 16 / z}" font-size="${px(12)}" text-anchor="middle" fill="#1e6fd9">始点</text>`;
+          s += `<circle cx="${e.x1}" cy="${e.y1}" r="${px(11)}" fill="#fff" stroke="#E2552D" stroke-width="${px(2.5)}"/>`;
+          s += `<circle cx="${e.x2}" cy="${e.y2}" r="${px(11)}" fill="#E2552D" stroke="#fff" stroke-width="${px(2)}"/>`;
+          s += `<text x="${e.x1}" y="${e.y1 - 16 / z}" font-size="${px(12)}" text-anchor="middle" fill="#E2552D">始点</text>`;
         } else {
           const b = elBBox(f);
           s += `<rect x="${r2(b.x0)}" y="${r2(b.y0)}" width="${r2(b.x1 - b.x0)}" height="${r2(b.y1 - b.y0)}" ${sty} stroke-dasharray="${px(6)} ${px(4)}"/>`;
@@ -186,12 +201,12 @@
     if ($('#lay-check').checked) s += issueMarkers(px);
     const t = st.temp;
     if (t) {
-      if (t.pts && t.pts.length > 1) s += `<polyline points="${t.pts.map((p) => `${r2(p.x)},${r2(p.y)}`).join(' ')}" fill="none" stroke="#1e6fd9" stroke-width="${px(3)}" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>`;
+      if (t.pts && t.pts.length > 1) s += `<polyline points="${t.pts.map((p) => `${r2(p.x)},${r2(p.y)}`).join(' ')}" fill="none" stroke="#E2552D" stroke-width="${px(3)}" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>`;
       if (t.wall) s += `<g opacity=".75">${NZ.renderModel({ walls: [t.wall], columns: [], fixtures: [], labels: [], dims: [], zones: [], grid: { xs: [], ys: [], visible: false } }, st.S, { prefix: 'tw' })}</g>`;
-      if (t.line) s += `<line x1="${t.line.a.x}" y1="${t.line.a.y}" x2="${t.line.b.x}" y2="${t.line.b.y}" stroke="#e05a00" stroke-width="${px(3)}"/>` + [t.line.a, t.line.b].map((p) => `<circle cx="${p.x}" cy="${p.y}" r="${px(6)}" fill="#e05a00"/>`).join('');
-      if (t.rect) s += `<rect x="${Math.min(t.rect.a.x, t.rect.b.x)}" y="${Math.min(t.rect.a.y, t.rect.b.y)}" width="${Math.abs(t.rect.b.x - t.rect.a.x)}" height="${Math.abs(t.rect.b.y - t.rect.a.y)}" fill="rgba(30,111,217,.12)" stroke="#1e6fd9" stroke-width="${px(2)}" stroke-dasharray="${px(6)} ${px(4)}"/>`;
-      if (t.snap) s += `<circle cx="${t.snap.x}" cy="${t.snap.y}" r="${px(9)}" fill="none" stroke="#e05a00" stroke-width="${px(2.5)}"/>`;
-      if (t.label) s += `<text x="${t.label.x}" y="${t.label.y}" font-size="${px(15)}" fill="#e05a00" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="${px(4)}">${esc(t.label.text)}</text>`;
+      if (t.line) s += `<line x1="${t.line.a.x}" y1="${t.line.a.y}" x2="${t.line.b.x}" y2="${t.line.b.y}" stroke="#E2552D" stroke-width="${px(3)}"/>` + [t.line.a, t.line.b].map((p) => `<circle cx="${p.x}" cy="${p.y}" r="${px(6)}" fill="#E2552D"/>`).join('');
+      if (t.rect) s += `<rect x="${Math.min(t.rect.a.x, t.rect.b.x)}" y="${Math.min(t.rect.a.y, t.rect.b.y)}" width="${Math.abs(t.rect.b.x - t.rect.a.x)}" height="${Math.abs(t.rect.b.y - t.rect.a.y)}" fill="rgba(226,85,45,.10)" stroke="#E2552D" stroke-width="${px(2)}" stroke-dasharray="${px(6)} ${px(4)}"/>`;
+      if (t.snap) s += `<circle cx="${t.snap.x}" cy="${t.snap.y}" r="${px(9)}" fill="none" stroke="#E2552D" stroke-width="${px(2.5)}"/>`;
+      if (t.label) s += `<text x="${t.label.x}" y="${t.label.y}" font-size="${px(15)}" fill="#E2552D" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="${px(4)}">${esc(t.label.text)}</text>`;
     }
     g.innerHTML = s;
   }
@@ -205,6 +220,7 @@
         const hw = (e.w * c + e.d * s) / 2, hd = (e.w * s + e.d * c) / 2;
         return { x0: e.x - hw, y0: e.y - hd, x1: e.x + hw, y1: e.y + hd };
       }
+      case 'photos': { const r = NZ.PHOTO_R * st.S; return { x0: e.x - r, y0: e.y - r, x1: e.x + r, y1: e.y + r }; }
       case 'labels': { const fs = (e.size || 3.5) * st.S, w = Math.max(2, e.text.length) * fs * 0.55; return { x0: e.x - w, y0: e.y - fs, x1: e.x + w, y1: e.y + (e.sub ? fs * 1.2 : fs * 0.3) }; }
       case 'dims': return { x0: Math.min(e.x1, e.x2) - 50, y0: Math.min(e.y1, e.y2) - 50, x1: Math.max(e.x1, e.x2) + 50, y1: Math.max(e.y1, e.y2) + 50 };
       case 'zones':
@@ -227,6 +243,7 @@
   function hitTest(p) {
     const tol = 14 / view().zoom;
     const pr = P();
+    if ($('#lay-photos').checked) for (const ph of [...(pr.photos || [])].reverse()) if (Math.hypot(p.x - ph.x, p.y - ph.y) <= NZ.PHOTO_R * st.S + tol) return ph.id;
     for (const l of [...pr.labels].reverse()) { const b = elBBox({ coll: 'labels', el: l }); if (p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1) return l.id; }
     for (const f of [...pr.fixtures].reverse()) {
       const a = (-(f.rot || 0) * Math.PI) / 180, dx = p.x - f.x, dy = p.y - f.y;
@@ -248,13 +265,14 @@
   }
 
   // ---------- スナップ ----------
-  function snapPoint(p, exclude) {
+  function snapPoint(p, exclude, forWall) {
     if (!$('#opt-snap').checked) return null;
     const tol = 12 / view().zoom;
     let best = null, bd = tol;
     const cand = (x, y) => { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = { x, y }; } };
     for (const w of P().walls) { if (w.id === exclude) continue; cand(w.x1, w.y1); cand(w.x2, w.y2); }
-    for (const c of P().columns) {
+    // 壁の端点は柱の角に吸着させない(壁の芯が柱の角に来て、壁の半分の厚みだけずれるため)。柱の面には snapEndToColumn で合わせる
+    if (!forWall) for (const c of P().columns) {
       cand(c.x, c.y);
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) cand(c.x + (sx * c.w) / 2, c.y + (sy * c.d) / 2);
     }
@@ -262,6 +280,87 @@
     if (g.visible) for (const x of g.xs) for (const y of g.ys) cand(x, y);
     return best;
   }
+  // ---------- 面の吸着 ----------
+  // 壁・柱の「面」の線の一覧。h: 水平な線(y = v、x は a〜b の範囲) / v: 垂直な線(x = v、y は a〜b)
+  // kind: face=面、end=壁の端、center=壁の芯
+  function faceLines(excludeId) {
+    const H = [], V = [];
+    for (const w of P().walls) {
+      if (w.id === excludeId) continue;
+      const fr = NZ.wallFrame(w), off = NZ.wallOffset(w), t = +w.thick || 0;
+      // 角でつながる壁があると、描画では相手の厚みの半分だけ伸びて角が閉じる(render.js の endExtensions と同じ)
+      let e0 = 0, e1 = 0;
+      for (const o of P().walls) {
+        if (o === w) continue;
+        for (const q of [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }]) {
+          if (Math.hypot(q.x - w.x1, q.y - w.y1) < 2) e0 = Math.max(e0, o.thick / 2);
+          if (Math.hypot(q.x - w.x2, q.y - w.y2) < 2) e1 = Math.max(e1, o.thick / 2);
+        }
+      }
+      if (Math.abs(fr.u.x) >= 0.996) {
+        const c = w.y1 + fr.n.y * off, x0 = Math.min(w.x1, w.x2), x1 = Math.max(w.x1, w.x2);
+        const ext0 = w.x1 <= w.x2 ? e0 : e1, ext1 = w.x1 <= w.x2 ? e1 : e0;
+        const a = x0 - ext0, b = x1 + ext1;
+        H.push({ v: c - t / 2, a, b, kind: 'face' }, { v: c + t / 2, a, b, kind: 'face' }, { v: c, a, b, kind: 'center' });
+        V.push({ v: a, a: c - t / 2, b: c + t / 2, kind: 'end' }, { v: b, a: c - t / 2, b: c + t / 2, kind: 'end' });
+      } else if (Math.abs(fr.u.y) >= 0.996) {
+        const c = w.x1 + fr.n.x * off, y0 = Math.min(w.y1, w.y2), y1 = Math.max(w.y1, w.y2);
+        const ext0 = w.y1 <= w.y2 ? e0 : e1, ext1 = w.y1 <= w.y2 ? e1 : e0;
+        const a = y0 - ext0, b = y1 + ext1;
+        V.push({ v: c - t / 2, a, b, kind: 'face' }, { v: c + t / 2, a, b, kind: 'face' }, { v: c, a, b, kind: 'center' });
+        H.push({ v: a, a: c - t / 2, b: c + t / 2, kind: 'end' }, { v: b, a: c - t / 2, b: c + t / 2, kind: 'end' });
+      }
+    }
+    for (const c of P().columns) {
+      if (c.id === excludeId) continue;
+      V.push({ v: c.x - c.w / 2, a: c.y - c.d / 2, b: c.y + c.d / 2, kind: 'face' }, { v: c.x + c.w / 2, a: c.y - c.d / 2, b: c.y + c.d / 2, kind: 'face' });
+      H.push({ v: c.y - c.d / 2, a: c.x - c.w / 2, b: c.x + c.w / 2, kind: 'face' }, { v: c.y + c.d / 2, a: c.x - c.w / 2, b: c.x + c.w / 2, kind: 'face' });
+    }
+    return { H, V };
+  }
+  // 四角(中心 x,y、半幅 hw、半奥行 hd)の辺を、近くの壁・柱の面にそろえる。centers=true なら柱の中心を壁の芯にも合わせる
+  function snapRect(x, y, hw, hd, excludeId, centers) {
+    if (!$('#opt-snap').checked) return { x, y, sx: false, sy: false };
+    const tol = 16 / view().zoom, L = faceLines(excludeId);
+    const best = (lines, pos, half, lo, hi) => {
+      let d = null;
+      for (const l of lines) {
+        if (l.b < lo - tol || l.a > hi + tol) continue; // 横の範囲が離れている線は使わない
+        const cand = l.kind === 'center' ? (centers ? [l.v - pos] : []) : [l.v - (pos - half), l.v - (pos + half)];
+        for (const c of cand) if (Math.abs(c) <= tol && (d === null || Math.abs(c) < Math.abs(d))) d = c;
+      }
+      return d;
+    };
+    const dx = best(L.V, x, hw, y - hd, y + hd);
+    const nx = x + (dx || 0);
+    const dy = best(L.H, y, hd, nx - hw, nx + hw);
+    return { x: nx, y: y + (dy || 0), sx: dx !== null, sy: dy !== null };
+  }
+  // 設備の向き(0/90/180/270)に応じた半幅・半奥行
+  const fixHalf = (f) => { const r = (((+f.rot || 0) % 180) + 180) % 180; return r === 90 ? [f.d / 2, f.w / 2] : r === 0 ? [f.w / 2, f.d / 2] : null; };
+  function snapElement(f) {
+    if (f.coll === 'columns') { const e = f.el, r = snapRect(e.x, e.y, e.w / 2, e.d / 2, e.id, true); e.x = r.x; e.y = r.y; return r.sx || r.sy; }
+    if (f.coll === 'fixtures') { const e = f.el, h = fixHalf(e); if (!h) return false; const r = snapRect(e.x, e.y, h[0], h[1], e.id, false); e.x = r.x; e.y = r.y; return r.sx || r.sy; }
+    return false;
+  }
+  // 壁の端点 np(向き dir で伸びる壁の先端)を、柱の面に合わせる
+  function snapEndToColumn(np, dir, excludeId) {
+    if (!$('#opt-snap').checked) return null;
+    const tol = 16 / view().zoom;
+    let best = null;
+    for (const c of P().columns) {
+      if (c.id === excludeId) continue;
+      if (Math.abs(dir.x) >= 0.996) {
+        if (np.y < c.y - c.d / 2 - 1 || np.y > c.y + c.d / 2 + 1) continue;
+        for (const fx of [c.x - c.w / 2, c.x + c.w / 2]) { const d = Math.abs(fx - np.x); if (d <= tol && (!best || d < best.d)) best = { d, p: { x: fx, y: np.y } }; }
+      } else if (Math.abs(dir.y) >= 0.996) {
+        if (np.x < c.x - c.w / 2 - 1 || np.x > c.x + c.w / 2 + 1) continue;
+        for (const fy of [c.y - c.d / 2, c.y + c.d / 2]) { const d = Math.abs(fy - np.y); if (d <= tol && (!best || d < best.d)) best = { d, p: { x: np.x, y: fy } }; }
+      }
+    }
+    return best ? best.p : null;
+  }
+
   function orthoDir(dir) {
     if (!$('#opt-ortho').checked) return dir;
     const ang = Math.atan2(dir.y, dir.x);
@@ -373,23 +472,26 @@
 
   // ---------- ツール ----------
   const HINTS = {
-    select: 'タップで選択、ドラッグで移動。壁の端点(○●)をドラッグで伸縮。ダブルタップで編集。指1本で画面移動、2本で拡大縮小。',
-    wall: '実測した壁をペンでなぞる → 寸法入力。既存の壁をなぞると実寸に合わせて修正。続けて端点からなぞると連続入力。',
-    column: '柱の位置をタップ → サイズ入力',
-    fixture: '設備を置く位置(中心)をタップ → 種類・品番・寸法を指定',
-    furniture: '家具を置く位置(中心)をタップ → 置き家具(テーブル・椅子など)/造作家具(棚・収納など)を指定',
-    floor: '床仕上げの範囲をドラッグで囲む → フローリング・カーペット・タイル・畳などを選択',
-    dim: '寸法を入れたい2点間をなぞる → 実測値を入力',
-    text: '室名を入れる位置をタップ',
-    zone: 'キッチン・トイレ・浴室などのおおよその範囲をドラッグで囲む',
-    calib: '下図上で長さが分かっている部分をなぞる → 実寸(mm)を入力して下図の縮尺を合わせる',
+    select: 'タップで選ぶ ・ ドラッグで動かす ・ 2回タップで直す',
+    wall: '測った壁をなぞる → 長さを入れる',
+    column: '柱の位置をタップ',
+    fixture: '設備を置く所をタップ',
+    furniture: '家具を置く所をタップ',
+    floor: '床の範囲を指で囲む',
+    dim: '測った2点の間をなぞる',
+    text: '部屋名を入れる所をタップ',
+    photo: '写真を撮った所をタップ',
+    zone: 'キッチン・トイレ・浴室の範囲を囲む',
+    calib: '長さの分かる所をなぞる → 実寸を入れる',
   };
   function setTool(t) {
     st.tool = t;
     st.temp = null;
+    if (t !== 'select') st.welcomeOff = true;
     $$('#tools button').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
     $('#hint').textContent = HINTS[t] || '';
     renderOverlay();
+    updateWelcome();
   }
 
   function toolDown(p) {
@@ -434,13 +536,23 @@
     if (t === 'select' && action.drag && action.moved) {
       const d = action.drag;
       if (d.kind === 'end') {
-        const sp = snapPoint(p, d.w.id);
+        let sp = snapPoint(p, d.w.id, true);
         let np = sp || p;
+        const other = d.which === 1 ? { x: d.w.x2, y: d.w.y2 } : { x: d.w.x1, y: d.w.y1 };
         if (!sp && $('#opt-ortho').checked) {
-          const other = d.which === 1 ? { x: d.w.x2, y: d.w.y2 } : { x: d.w.x1, y: d.w.y1 };
           const L = Math.hypot(np.x - other.x, np.y - other.y);
           const dir = orthoDir({ x: (np.x - other.x) / L, y: (np.y - other.y) / L });
           np = { x: other.x + dir.x * L, y: other.y + dir.y * L };
+        }
+        if (!sp) {
+          // 柱の面、または他の壁(T字につながる位置)に合わせる
+          const L = Math.hypot(np.x - other.x, np.y - other.y) || 1, dir = { x: (np.x - other.x) / L, y: (np.y - other.y) / L };
+          const cp = snapEndToColumn(np, dir, null);
+          if (cp) { np = cp; sp = cp; }
+          else {
+            const h = rayToWall(other, dir, L, 16 / view().zoom, L * 0.5, d.w.id);
+            if (h) { np = { x: other.x + dir.x * h.t, y: other.y + dir.y * h.t }; sp = np; }
+          }
         }
         moveWallEnd(d.w, d.which, np);
         const L = Math.hypot(d.w.x2 - d.w.x1, d.w.y2 - d.w.y1);
@@ -448,11 +560,26 @@
       } else {
         const dx = p.x - action.start.x, dy = p.y - action.start.y;
         const e = d.f.el, o = d.orig;
-        if ('x1' in o) { e.x1 = o.x1 + dx; e.y1 = o.y1 + dy; e.x2 = o.x2 + dx; e.y2 = o.y2 + dy; }
-        else { e.x = o.x + dx; e.y = o.y + dy; }
-        for (const a of d.attached) { if (a.k === 1) { a.o.x1 = a.x + dx; a.o.y1 = a.y + dy; } else { a.o.x2 = a.x + dx; a.o.y2 = a.y + dy; } }
+        let ddx = dx, ddy = dy, snapped = null;
+        if ('x1' in o) {
+          // 壁: どちらかの端点が他の壁の端点・柱の面に近ければ、そこへ合わせる(つながっている壁は除く)
+          if (d.f.coll === 'walls' && !d.attached.length) {
+            const L = Math.hypot(o.x2 - o.x1, o.y2 - o.y1) || 1, u = { x: (o.x2 - o.x1) / L, y: (o.y2 - o.y1) / L };
+            for (const [px, py, dir] of [[o.x1 + dx, o.y1 + dy, { x: -u.x, y: -u.y }], [o.x2 + dx, o.y2 + dy, u]]) {
+              const q = { x: px, y: py };
+              const sp = snapPoint(q, e.id, true) || snapEndToColumn(q, dir, null);
+              if (sp) { ddx += sp.x - px; ddy += sp.y - py; snapped = sp; break; }
+            }
+          }
+          e.x1 = o.x1 + ddx; e.y1 = o.y1 + ddy; e.x2 = o.x2 + ddx; e.y2 = o.y2 + ddy;
+        } else {
+          e.x = o.x + dx; e.y = o.y + dy;
+          if (snapElement(d.f)) snapped = { x: e.x, y: e.y };
+        }
+        for (const a of d.attached) { if (a.k === 1) { a.o.x1 = a.x + ddx; a.o.y1 = a.y + ddy; } else { a.o.x2 = a.x + ddx; a.o.y2 = a.y + ddy; } }
+        st.temp = snapped ? { snap: snapped } : null;
       }
-      $('#g-model').innerHTML = NZ.svgDefs(st.S, 'ed') + NZ.renderModel(P(), st.S, { prefix: 'ed', zones: $('#lay-zones').checked, grid: $('#lay-grid').checked, dims: $('#lay-dims').checked });
+      $('#g-model').innerHTML = NZ.svgDefs(st.S, 'ed') + NZ.renderModel(P(), st.S, { prefix: 'ed', zones: $('#lay-zones').checked, grid: $('#lay-grid').checked, dims: $('#lay-dims').checked, photos: $('#lay-photos').checked });
       renderOverlay();
     } else if (t === 'wall' || t === 'dim' || t === 'calib') {
       st.temp.pts.push(p);
@@ -471,7 +598,7 @@
     const scrLen = Math.hypot(e.clientX - a.startScr.x, e.clientY - a.startScr.y);
     if (t === 'select') {
       if (a.drag && a.moved) {
-        st.temp = null;
+        st.temp = null; // 吸着の印を消す
         // 手で壁を動かした場合は、動かした形を正として内法を取り直す
         if (a.drag.kind === 'end' || a.drag.f.coll === 'walls') NZ.syncInner(P());
         commit();
@@ -508,10 +635,11 @@
       else floorDialog(null, rect, e);
       return;
     }
-    if (t === 'column') { columnDialog(null, snapPoint(p) || p, e); return; }
+    if (t === 'column') { columnDialog(null, snapPoint(p, null, true) || p, e); return; }
     if (t === 'fixture') { fixtureDialog(null, p, e, 'equip'); return; }
     if (t === 'furniture') { fixtureDialog(null, p, e, 'furniture'); return; }
     if (t === 'text') { labelDialog(null, p, e); return; }
+    if (t === 'photo') { photoDialog(null, p); return; }
   }
   function selectAt(p) {
     st.sel = hitTest(p);
@@ -544,15 +672,22 @@
   function newWallFromFit(fit, e) {
     const dir = orthoDir(fit.dir);
     const tol = 15 / view().zoom;
-    let A = snapPoint(fit.A);
+    let A = snapPoint(fit.A, null, true);
     let len = fit.len;
     // 始点・終点が既存の壁に掛かっていれば、その壁の芯までつなぐ(内法はあとで壁厚分を差し引く)
     if (!A) {
       const h = rayToWall(fit.A, dir, 0, tol, -Infinity);
-      if (h) { A = { x: fit.A.x + dir.x * h.t, y: fit.A.y + dir.y * h.t }; len -= h.t; } else A = fit.A;
+      const cA = snapEndToColumn(fit.A, { x: -dir.x, y: -dir.y }, null);
+      if (cA) { const t = (cA.x - fit.A.x) * dir.x + (cA.y - fit.A.y) * dir.y; A = cA; len -= t; }
+      else if (h) { A = { x: fit.A.x + dir.x * h.t, y: fit.A.y + dir.y * h.t }; len -= h.t; } else A = fit.A;
     }
-    const hEnd = rayToWall(A, dir, len, tol, len * 0.5);
-    if (hEnd) len = hEnd.t;
+    const Bfree = { x: A.x + dir.x * len, y: A.y + dir.y * len };
+    const sB = snapPoint(Bfree, null, true);
+    const cB = sB ? null : snapEndToColumn(Bfree, dir, null);
+    const hEnd = sB || cB ? null : rayToWall(A, dir, len, tol, len * 0.5);
+    if (sB) { const t = (sB.x - A.x) * dir.x + (sB.y - A.y) * dir.y; if (t > 0 && Math.hypot(A.x + dir.x * t - sB.x, A.y + dir.y * t - sB.y) < 1) len = t; }
+    else if (cB) len = (cB.x - A.x) * dir.x + (cB.y - A.y) * dir.y;
+    else if (hEnd) len = hEnd.t;
     // 寸法の表示側: 図形の外側
     const bb = NZ.modelBBox(P(), false);
     const c = { x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 };
@@ -572,9 +707,10 @@
   }
 
   // 点 A から dir 方向の直線が、t≈tAt の位置で既存の壁の芯線と交わるか
-  function rayToWall(A, dir, tAt, tol, tMin) {
+  function rayToWall(A, dir, tAt, tol, tMin, excludeId) {
     let best = null;
     for (const o of P().walls) {
+      if (o.id === excludeId) continue;
       const fo = NZ.wallFrame(o);
       const den = dir.x * fo.u.y - dir.y * fo.u.x;
       if (Math.abs(den) < 0.1) continue;
@@ -599,6 +735,13 @@
     if (def.opts.includes('sill')) {
       const on = g.sill === undefined ? !!def.sillDef : g.sill;
       o += `<label class="sill-chk"><input type="checkbox" data-k="sill" ${on ? 'checked' : ''}>敷居</label>`;
+    }
+    // 展開図用の高さ(空欄=標準値)
+    const v0 = NZ.elevOpeningDefault && NZ.elevOpeningDefault(g.type);
+    if (v0) {
+      const val = (x) => (x === undefined || x === null || x === '' ? '' : esc(x));
+      if (v0.canBot) o += `<label class="seg-num">腰高<input data-k="bot" inputmode="decimal" value="${val(g.bot)}" placeholder="${v0.bot}"></label>`;
+      o += `<label class="seg-num">高さH<input data-k="ht" inputmode="decimal" value="${val(g.ht)}" placeholder="${v0.ht}"></label>`;
     }
     return `<div class="seg-row" data-i="${i}"><select data-k="type">${opts}</select><input data-k="len" inputmode="decimal" value="${g.len}" placeholder="mm"><div class="seg-opts">${o}</div><button class="del" data-del="${i}" aria-label="削除">×</button></div>`;
   }
@@ -685,8 +828,8 @@
       pv.setAttribute('viewBox', `${-m} ${-m} ${tw.x2 + 2 * m} ${2 * m}`);
       const pj = { walls: [Object.assign({}, tw, { segments: segs.map((g) => Object.assign({}, g, { len: num(g.len) || 0 })) })], columns: [], fixtures: [], labels: [], dims: [], zones: [], grid: { xs: [], ys: [], visible: false } };
       pv.innerHTML = NZ.svgDefs(S, 'pv') + NZ.renderModel(pj, S, { prefix: 'pv' }) +
-        `<text x="0" y="${-tw.thick / 2 - 1.5 * S}" font-size="${2.6 * S}" text-anchor="middle" fill="#1e6fd9">始点</text><text x="${tw.x2}" y="${-tw.thick / 2 - 1.5 * S}" font-size="${2.6 * S}" text-anchor="middle" fill="#1e6fd9">終点</text>` +
-        `<path d="M${tw.x2 * 0.4},${-m * 0.75} L${tw.x2 * 0.6},${-m * 0.75}" stroke="#1e6fd9" stroke-width="${0.4 * S}"/><path d="M${tw.x2 * 0.6 - 1.5 * S},${-m * 0.75 - S} L${tw.x2 * 0.6},${-m * 0.75} L${tw.x2 * 0.6 - 1.5 * S},${-m * 0.75 + S}" fill="none" stroke="#1e6fd9" stroke-width="${0.4 * S}"/>`;
+        `<text x="0" y="${-tw.thick / 2 - 1.5 * S}" font-size="${2.6 * S}" text-anchor="middle" fill="#E2552D">始点</text><text x="${tw.x2}" y="${-tw.thick / 2 - 1.5 * S}" font-size="${2.6 * S}" text-anchor="middle" fill="#E2552D">終点</text>` +
+        `<path d="M${tw.x2 * 0.4},${-m * 0.75} L${tw.x2 * 0.6},${-m * 0.75}" stroke="#E2552D" stroke-width="${0.4 * S}"/><path d="M${tw.x2 * 0.6 - 1.5 * S},${-m * 0.75 - S} L${tw.x2 * 0.6},${-m * 0.75} L${tw.x2 * 0.6 - 1.5 * S},${-m * 0.75 + S}" fill="none" stroke="#E2552D" stroke-width="${0.4 * S}"/>`;
       showInner();
       if (o.isNew && st.temp && st.temp.wall && isFinite(len) && len > 0) {
         const fr = NZ.wallFrame(w), cl = centerLen(len);
@@ -711,6 +854,8 @@
           if (d.def && !num(segs[i].len)) segs[i].len = d.def;
           segs[i].panels = d.panels ? d.panels[0] : undefined;
           delete segs[i].sill;
+          delete segs[i].ht;
+          delete segs[i].bot;
           drawSegs();
           return;
         }
@@ -740,6 +885,20 @@
       if (!(len > 0) || !(thick > 0) || !(height > 0)) { toast('長さ・壁厚・壁高を正しく入力してください'); return false; }
       const segsOut = segs.map((g) => Object.assign({}, g, { len: num(g.len) || 0 })).filter((g) => g.len > 0);
       if (segsOut.reduce((a, g) => a + g.len, 0) > len + 0.5) { toast('分割の合計が全長を超えています'); return false; }
+      // 建具の高さ・腰高(空欄=標準値)
+      for (const g of segsOut) {
+        for (const k of ['ht', 'bot']) {
+          if (g[k] === undefined || String(g[k]).trim() === '') { delete g[k]; continue; }
+          const v = num(g[k]);
+          if (!(v >= 0) || (k === 'ht' && !(v > 0))) { toast(`${NZ.SEG_TYPES[g.type].label}の${k === 'ht' ? '高さ' : '腰高'}を正しく入力してください`); return false; }
+          g[k] = Math.round(v);
+        }
+        const v0 = NZ.elevOpeningDefault && NZ.elevOpeningDefault(g.type);
+        if (v0 && (g.ht !== undefined || g.bot !== undefined)) {
+          const top = (g.bot ?? v0.bot) + (g.ht ?? v0.ht);
+          if (top > height) { toast(`${NZ.SEG_TYPES[g.type].label}の上端(${v0.canBot ? '腰高+高さ' : '高さ'}=${top}mm)が壁高 ${height}mm を超えています`); return false; }
+        }
+      }
       const fr = NZ.wallFrame(w);
       Object.assign(st.last, { kind: fv('kind'), thick, just: fv('just') });
       const props = { thick, height, kind: fv('kind'), just: fv('just'), dim: fv('dim'), segments: segsOut, innerMode: inner };
@@ -820,7 +979,8 @@
       title: '下図の縮尺合わせ', anchor: e,
       html: `<div class="note">なぞった部分の実際の長さを入力してください(図面に記載の寸法や実測値)。</div>
         <div class="row"><label class="f">実寸 (mm)<input name="val" class="big" inputmode="decimal" value=""></label></div>
-        <label class="chk"><input type="checkbox" name="scaleAll" checked>作図済みの要素も一緒に拡大縮小する</label>`,
+        <label class="chk"><input type="checkbox" name="scaleAll" checked>下図に合わせて置いた要素も一緒に拡大縮小する</label>
+        <div class="note">寸法を入力して描いた壁(実測値)は、長さ・位置とも動かしません。自動検出した壁・柱、設備・文字・写真などの位置が対象です。</div>`,
       buttons: [
         { label: 'キャンセル', onClick: () => { st.temp = null; renderOverlay(); } },
         {
@@ -850,10 +1010,17 @@
   function scaleModel(ox, oy, k) {
     const sx = (x) => ox + (x - ox) * k, sy = (y) => oy + (y - oy) * k;
     const p = P();
-    for (const w of p.walls) { w.x1 = sx(w.x1); w.y1 = sy(w.y1); w.x2 = sx(w.x2); w.y2 = sy(w.y2); if (w.detected) w.thick = Math.max(50, Math.round((w.thick * k) / 5) * 5); w.segments.forEach((g) => (g.len *= k)); }
+    // 寸法を入力して描いた壁(実測値)は対象外。下図から自動検出した(未確定の)壁だけを拡大縮小する
+    for (const w of p.walls) {
+      if (!w.detected) continue;
+      w.x1 = sx(w.x1); w.y1 = sy(w.y1); w.x2 = sx(w.x2); w.y2 = sy(w.y2);
+      w.thick = Math.max(50, Math.round((w.thick * k) / 5) * 5);
+      (w.segments || []).forEach((g) => (g.len *= k));
+    }
     for (const c of p.columns) { c.x = sx(c.x); c.y = sy(c.y); if (c.detected) { c.w *= k; c.d *= k; } }
     for (const f of p.fixtures) { f.x = sx(f.x); f.y = sy(f.y); }
     for (const l of p.labels) { l.x = sx(l.x); l.y = sy(l.y); }
+    for (const ph of p.photos || []) { ph.x = sx(ph.x); ph.y = sy(ph.y); }
     for (const d of p.dims) { d.x1 = sx(d.x1); d.y1 = sy(d.y1); d.x2 = sx(d.x2); d.y2 = sy(d.y2); }
     for (const z of [...p.zones, ...p.floors]) { z.x = sx(z.x); z.y = sy(z.y); z.w *= k; z.h *= k; }
     p.grid.xs = p.grid.xs.map(sx); p.grid.ys = p.grid.ys.map(sy);
@@ -876,6 +1043,7 @@
             if (!(w > 0 && dd > 0)) { toast('サイズを入力してください'); return false; }
             Object.assign(e, { w, d: dd, kind: d.querySelector('[name=kind]').value });
             delete e.detected;
+            snapElement({ coll: 'columns', el: e });
             if (isNew) P().columns.push(e);
             commit();
           },
@@ -899,6 +1067,8 @@
       title: (isNew ? (furn ? '家具の配置' : '設備の配置') : furn ? '家具の編集' : '設備の編集'), anchor, wide: true,
       html: `<div class="row"><label class="f">種類<select name="type">${typeOpts}</select></label><label class="f">サイズ選択<select name="preset"></select></label></div>
         <div class="row"><label class="f">品番<input name="model" value="${esc(e.model || '')}" placeholder="例: TOTO CES9151 / LIXIL BKW-1616"></label></div>
+        ${AI_ON ? `<div class="row" style="align-items:center"><button class="btn-search" style="border:0;border-radius:9px;padding:10px 14px;background:var(--accent);color:#fff;cursor:pointer">品番の寸法をネット検索</button><span class="note">AI(Claude)がメーカー情報を検索します。結果は端末に保存され次回から再利用されます。</span></div>
+        <div class="search-res"></div>` : ''}
         <div class="row"><label class="f">幅 W (mm)<input name="w" inputmode="decimal" value="${Math.round(e.w)}"></label><label class="f">奥行 D (mm)<input name="d" inputmode="decimal" value="${Math.round(e.d)}"></label><label class="f">高さ H (mm)<input name="h" inputmode="decimal" value="${Math.round(e.h || 0)}"></label></div>
         <div class="row"><label class="f">向き(背面の方向)<select name="rot">${[[0, '上(背面が上)'], [90, '右'], [180, '下'], [270, '左']].map(([v, l]) => `<option value="${v}" ${+e.rot === v ? 'selected' : ''}>${l}</option>`).join('')}${[0, 90, 180, 270].includes(+e.rot) ? '' : `<option value="${e.rot}" selected>${e.rot}°</option>`}</select></label><label class="f">表示名(空欄=種類名)<input name="label" value="${esc(e.label || '')}"></label></div>`,
       buttons: [
@@ -913,6 +1083,7 @@
             if (shape === 'round' && e.type === 'table') e.shape = 'round'; else delete e.shape;
             delete e.detected;
             if (NZ.fixtureCat(e.type) === 'equip') st.last.fixtureType = e.type; else st.last.furnitureType = e.type;
+            snapElement({ coll: 'fixtures', el: e });
             if (isNew) P().fixtures.push(e);
             commit();
           },
@@ -937,7 +1108,7 @@
       d.querySelector('[name=w]').value = p0.w; d.querySelector('[name=d]').value = p0.d; d.querySelector('[name=h]').value = p0.h;
       shape = p0.shape;
     });
-    const _bs = d.querySelector('.btn-search'); if (_bs) _bs.addEventListener('click', async () => {
+    if (AI_ON) d.querySelector('.btn-search').addEventListener('click', async () => {
       const code = d.querySelector('[name=model]').value.trim();
       const res = d.querySelector('.search-res');
       if (!code) { res.innerHTML = '<span class="note warn">品番を入力してください</span>'; return; }
@@ -1064,13 +1235,14 @@
     else if (f.coll === 'columns') columnDialog(e);
     else if (f.coll === 'fixtures') fixtureDialog(e);
     else if (f.coll === 'labels') labelDialog(e);
+    else if (f.coll === 'photos') photoDialog(e);
     else if (f.coll === 'dims') dimDialog(e);
     else if (f.coll === 'zones') zoneDialog(e);
     else if (f.coll === 'floors') floorDialog(e);
   }
 
   // ---------- 選択バー ----------
-  const COLL_LABEL = { walls: '壁', columns: '柱', fixtures: '設備・家具', labels: '文字', dims: '寸法', zones: '範囲', floors: '床' };
+  const COLL_LABEL = { walls: '壁', columns: '柱', fixtures: '設備・家具', labels: '文字', photos: '写真', dims: '寸法', zones: '範囲', floors: '床' };
   function renderSelbar() {
     const bar = $('#selbar');
     const f = st.sel && st.mode === 'draw' ? findEl(st.sel) : null;
@@ -1083,8 +1255,9 @@
     const btns = [['edit', '編集']];
     if (e.detected) btns.unshift(['confirm', '確定']);
     if (f.coll === 'fixtures') btns.push(['rot', '回転90°']);
+    if (f.coll === 'photos') { title = `写真 No.${e.no}${e.note ? ' ' + e.note : ''}`; btns.unshift(['view', '写真を見る']); btns.push(['rot', '向き45°']); }
     if (f.coll === 'walls' && e.innerMode) title = `${(NZ.WALL_KINDS[e.kind] || {}).label || '壁'} 内法${Math.round(e.inner)}mm`;
-    if (f.coll === 'walls') btns.push(['flip', '向き反転']);
+    if (f.coll === 'walls') btns.push(['flip', '向き反転'], ['measure', '写真で測る']);
     if (['fixtures', 'columns', 'walls', 'labels', 'floors'].includes(f.coll)) btns.push(['dup', '複製']);
     btns.push(['del', '削除']);
     bar.innerHTML = `<span class="sel-title">${esc(title)}${e.detected ? '(未確定)' : ''}</span>` + btns.map(([k, l]) => `<button data-sa="${k}" class="${k === 'del' ? 'danger' : ''}">${l}</button>`).join('');
@@ -1098,7 +1271,9 @@
     const e = f.el;
     if (a === 'edit') editEl(e.id);
     if (a === 'confirm') { delete e.detected; commit(); }
-    if (a === 'rot') { e.rot = ((e.rot || 0) + 90) % 360; commit(); }
+    if (a === 'rot') { e.rot = ((e.rot || 0) + (f.coll === 'photos' ? 45 : 90)) % 360; commit(); }
+    if (a === 'view') viewPhoto(e);
+    if (a === 'measure') NZ.photoMeasure(e);
     if (a === 'flip') {
       [e.x1, e.y1, e.x2, e.y2] = [e.x2, e.y2, e.x1, e.y1];
       e.segments = (e.segments || []).slice().reverse().map((g) => Object.assign({}, g, { hinge: g.hinge === 'end' ? 'start' : 'end', side: g.side === 'left' ? 'right' : 'left' }));
@@ -1305,7 +1480,7 @@
         fitView();
         openDialog({
           title: '下図を読み込みました',
-          html: `<p class="note">次に「縮尺合せ」ツールで、図面上の長さが分かっている部分(例: 記載寸法のある壁)をなぞって実寸を入力してください。<br>その後、メニューの「構造壁・柱を自動検出」を実行すると、構造壁・柱・水回りの位置を取り込めます。</p>`,
+          html: `<p class="note">次に「縮尺合せ」ツールで、図面上の長さが分かっている部分(例: 記載寸法のある壁)をなぞって実寸を入力してください。<br>その後、メニューの「構造壁・柱を自動検出」${AI_ON ? 'または「AIで図面を解析」' : ''}を実行すると、構造壁・柱・水回りの位置を取り込めます。</p>`,
           buttons: [{ label: '閉じる' }, { label: '縮尺合せへ', cls: 'primary', onClick: () => setTool('calib') }],
         });
       };
@@ -1437,6 +1612,7 @@
 
   async function aiAnalyze() {
     const u = P().underlay;
+    if (!AI_ON) { toast('この版ではAI機能は使えません'); return; }
     if (!u) { toast('先に下図画像を読み込んでください'); return; }
     if (!st.settings.apiKey) { toast('設定で Anthropic APIキーを入力してください'); settingsDialog(); return; }
     openDialog({
@@ -1581,13 +1757,17 @@
           <label class="f">寸法チェックの許容差 (mm)<select name="checkTol">${[3, 5, 10, 20, 30].map((v) => `<option ${+(s.checkTol || 10) === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
         <div class="row"><label class="f">壁の寸法の入力方法(新しく描く壁)<select name="innerMode"><option value="1" ${s.innerMode !== false ? 'selected' : ''}>内法(実測値)… 接続する壁の厚み分を自動で加算</option><option value="0" ${s.innerMode === false ? 'selected' : ''}>壁芯(芯々)</option></select></label></div>
         <label class="chk"><input type="checkbox" name="applyCur">今開いている図面の表題欄にも反映する</label>
-`,
+        ${AI_ON ? `<div class="seg-head">AI機能(図面解析・品番検索)</div>
+        <div class="row"><label class="f">Anthropic APIキー<input name="apiKey" type="password" value="${esc(s.apiKey)}" placeholder="sk-ant-..." autocomplete="off"></label></div>
+        <div class="row"><label class="f">モデル<select name="model">${['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5'].map((m) => `<option ${s.model === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
+        <p class="note">APIキーはこの端末のブラウザ内にのみ保存されます。共用端末では入力しないでください。キーは console.anthropic.com で発行できます。</p>` : ''}`,
       buttons: [
         { label: 'キャンセル' },
         {
           label: '保存', cls: 'primary', onClick: (d) => {
             const g = (n) => d.querySelector(`[name=${n}]`).value;
             Object.assign(s, { company: g('company'), companySub: g('companySub'), author: g('author'), license: g('license'), round: +g('round'), checkTol: +g('checkTol'), innerMode: g('innerMode') === '1' });
+            if (AI_ON) Object.assign(s, { apiKey: g('apiKey').trim(), model: g('model') });
             NZ.saveSettings(s);
             if (d.querySelector('[name=applyCur]').checked) { Object.assign(P().meta, { company: s.company, companySub: s.companySub, author: s.author, license: s.license }); commit(); }
             renderAll();
@@ -1599,6 +1779,107 @@
   }
 
   // ---------- 図面一覧 ----------
+  // ---------- 現場写真 ----------
+  const PHOTO_DIRS = [[0, '上'], [45, '右上'], [90, '右'], [135, '右下'], [180, '下'], [225, '左下'], [270, '左'], [315, '左上']];
+  const dirLabel = (rot) => { const r = (((+rot || 0) % 360) + 360) % 360; const d = PHOTO_DIRS.find(([v]) => v === r); return d ? d[1] : `${r}°`; };
+  // 撮った写真を長辺 1600px の JPEG に縮小(端末の容量を節約)
+  function shrinkPhoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve({ data: c.toDataURL('image/jpeg', 0.8), w, h });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+      img.src = url;
+    });
+  }
+  function photoDialog(ph, p) {
+    const isNew = !ph;
+    const nextNo = Math.max(0, ...(P().photos || []).map((x) => +x.no || 0)) + 1;
+    const e = ph || { id: NZ.uid(), no: nextNo, x: p.x, y: p.y, rot: 0, note: '', img: null };
+    let picked = null; // 新しく選んだ写真
+    const dlg = openDialog({
+      title: isNew ? '写真を追加' : `写真 No.${e.no}`, wide: true,
+      html: `<label class="photo-pick"><input type="file" name="file" accept="image/*" hidden>📷 ${isNew ? '撮影する / 写真を選ぶ' : '写真を撮り直す / 選び直す'}</label>
+        <img class="photo-prev ${isNew ? 'hidden' : ''}" alt="写真">
+        <div class="row"><label class="f">番号<input name="no" inputmode="numeric" value="${esc(e.no)}"></label>
+          <label class="f">撮影した向き(図面上)<select name="rot">${PHOTO_DIRS.map(([v, l]) => `<option value="${v}" ${+e.rot === v ? 'selected' : ''}>${l}</option>`).join('')}${PHOTO_DIRS.some(([v]) => v === +e.rot) ? '' : `<option value="${e.rot}" selected>${e.rot}°</option>`}</select></label></div>
+        <div class="row"><label class="f">メモ(場所・内容)<input name="note" value="${esc(e.note || '')}" placeholder="例: 洋室1 北側の窓まわり"></label></div>
+        <p class="note">写真はこの端末の中にだけ保存されます(縮小して保存)。別の端末へは「データ書き出し(.json)」で写真ごと移せます。</p>`,
+      buttons: [
+        ...(isNew ? [] : [{ label: '削除', cls: 'danger', onClick: () => { removeEl(e.id); st.sel = null; commit(); } }]),
+        { label: 'キャンセル' },
+        {
+          label: 'OK', cls: 'primary', onClick: async (d) => {
+            if (isNew && !picked) { toast('写真を撮影するか選んでください'); return false; }
+            const no = d.querySelector('[name=no]').value.trim();
+            if (!no) { toast('番号を入力してください'); return false; }
+            if (picked) {
+              const img = NZ.uid();
+              try { await NZ.db.putPhoto({ id: img, projectId: P().id, data: picked.data, w: picked.w, h: picked.h, createdAt: Date.now() }); }
+              catch (err) { toast('写真を保存できませんでした(端末の空き容量を確認してください)'); return false; }
+              e.img = img;
+            }
+            Object.assign(e, { no, rot: +d.querySelector('[name=rot]').value || 0, note: d.querySelector('[name=note]').value.trim() });
+            if (isNew) P().photos.push(e);
+            st.sel = e.id;
+            commit();
+          },
+        },
+      ],
+    });
+    const d = dlg.dlg, prev = d.querySelector('.photo-prev');
+    if (!isNew && e.img) NZ.db.getPhoto(e.img).then((r) => { if (r) prev.src = r.data; else prev.alt = '写真が見つかりません(この端末にありません)'; });
+    prev.addEventListener('click', () => { if (prev.src) viewPhoto(e, prev.src); });
+    d.querySelector('[name=file]').addEventListener('change', async (ev) => {
+      const f = ev.target.files[0];
+      if (!f) return;
+      const b = busy('写真を読み込んでいます…');
+      try { picked = await shrinkPhoto(f); prev.src = picked.data; prev.classList.remove('hidden'); }
+      catch (err) { toast(err.message); }
+      b.close();
+      ev.target.value = '';
+    });
+  }
+  async function viewPhoto(ph, src) {
+    if (!src) { const r = ph.img && (await NZ.db.getPhoto(ph.img)); if (!r) { toast('写真が見つかりません(この端末にありません)'); return; } src = r.data; }
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-wrap';
+    wrap.innerHTML = `<div class="preview-bar"><span class="title">写真 No.${esc(ph.no)} 向き:${esc(dirLabel(ph.rot))}${ph.note ? ' ' + esc(ph.note) : ''}</span><button data-pv="close">閉じる</button></div><div class="preview-scroll"><img class="photo-view" alt="写真"></div>`;
+    wrap.querySelector('img').src = src;
+    document.body.appendChild(wrap);
+    wrap.addEventListener('click', (ev) => { if (ev.target.dataset.pv === 'close') wrap.remove(); });
+  }
+  // 写真台帳: A4縦に3枚ずつ。番号・場所(室名)・向き・メモ
+  async function printPhotoList() {
+    const list = (P().photos || []).slice().sort((a, b) => (+a.no || 0) - (+b.no || 0) || String(a.no).localeCompare(String(b.no)));
+    if (!list.length) { toast('写真がありません。左の「写真」ツールで追加してください'); return; }
+    const m = P().meta, rows = [];
+    for (const ph of list) {
+      const r = ph.img && (await NZ.db.getPhoto(ph.img));
+      const room = NZ.roomAt ? NZ.roomAt(P(), ph) : null;
+      rows.push(`<div class="pr"><div class="pi">${r ? `<img src="${r.data}">` : '<span>写真なし(この端末にありません)</span>'}</div>
+        <table><tr><th>No.</th><td>${esc(ph.no)}</td></tr><tr><th>場所</th><td>${esc(room ? room.name : '')}</td></tr><tr><th>向き</th><td>図面の${esc(dirLabel(ph.rot))}方向</td></tr><tr><th>メモ</th><td>${esc(ph.note || '')}</td></tr></table></div>`);
+    }
+    const pages = [];
+    for (let i = 0; i < rows.length; i += 3) pages.push(rows.slice(i, i + 3).join(''));
+    const head = (i) => `<div class="ph"><b>写真一覧</b><span>${esc(m.name || '')}</span><span>${esc((m.date || '').replace(/-/g, '.'))}</span><span>${esc(m.company || '')}</span><span>${i + 1}/${pages.length}</span></div>`;
+    $('#print-area').innerHTML = `<style>@page{size:210mm 297mm;margin:0}
+      .pp{width:210mm;height:297mm;box-sizing:border-box;padding:12mm;page-break-after:always;font-family:${NZ.FONT};font-size:10pt;color:#111}
+      .ph{display:flex;gap:6mm;align-items:baseline;border-bottom:0.4mm solid #111;padding-bottom:2mm;margin-bottom:4mm}.ph b{font-size:13pt;margin-right:auto}
+      .pr{display:flex;gap:4mm;height:83mm;margin-bottom:4mm}.pi{width:115mm;height:83mm;display:flex;align-items:center;justify-content:center;background:#f3f3f3}
+      .pi img{max-width:115mm;max-height:83mm}.pr table{flex:1;border-collapse:collapse;align-self:flex-start}.pr th,.pr td{border:0.3mm solid #333;padding:1.6mm;text-align:left;vertical-align:top}.pr th{width:14mm;background:#eee;font-weight:400}</style>` +
+      pages.map((pg, i) => `<div class="pp">${head(i)}${pg}</div>`).join('');
+    setTimeout(() => window.print(), 300);
+  }
+
   async function projectsDialog() {
     const list = await NZ.db.listProjects();
     const fmt = (t) => { const d = new Date(t); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -1613,6 +1894,7 @@
       if (del) {
         if (!confirm('この図面を削除しますか?(元に戻せません)')) return;
         await NZ.db.deleteProject(del);
+        await NZ.db.deletePhotosOf(del);
         ev.target.closest('.item').remove();
         if (del === P().id) openProject(NZ.newProject(st.settings));
       }
@@ -1625,10 +1907,13 @@
     p.meta = Object.assign({}, base.meta, p.meta);
     st.project = p;
     st.sel = null;
+    st.welcomeOff = false;
     st.temp = null;
     st.underSrc = p.underlay ? p.underlay.src : null;
     NZ.solveWalls(p);
     resetHistory();
+    // 元に戻す履歴はここで空になるので、図面から消した写真の画像を片付けてよい
+    NZ.db.deletePhotosOf(p.id, new Set((p.photos || []).map((ph) => ph.img).filter(Boolean))).catch(() => {});
     renderUnderlay();
     renderAll();
     fitView();
@@ -1649,8 +1934,18 @@
     const sh = NZ.renderSheet(P());
     download(new Blob([sh.svg], { type: 'image/svg+xml' }), fileBase() + '.svg');
   }
+  // DXF(JW-CAD・CAD用)。実寸mm、Shift_JIS、R12形式
+  function exportDXF() {
+    try {
+      const r = NZ.planDxf(P());
+      download(new Blob([r.bytes], { type: 'application/dxf' }), fileBase() + '_平面図.dxf');
+      toast(`DXFを保存しました(線・文字 ${r.total} 個)。JW-CADでは縮尺を 1/${r.S} にすると用紙どおりの大きさになります`, 6000);
+    } catch (e) { toast('DXFを作成できませんでした: ' + e.message, 5000); }
+  }
   function exportPNG() {
-    const sh = NZ.renderSheet(P());
+    svgToPng(NZ.renderSheet(P()), fileBase() + '.png');
+  }
+  function svgToPng(sh, filename) {
     const pxPerMm = 8; // 約200dpi
     const img = new Image();
     img.onload = () => {
@@ -1659,7 +1954,7 @@
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
       ctx.drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob((b) => download(b, fileBase() + '.png'), 'image/png');
+      c.toBlob((b) => download(b, filename), 'image/png');
     };
     img.onerror = () => toast('PNGの作成に失敗しました');
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sh.svg);
@@ -1701,93 +1996,86 @@
     });
   }
 
-  function exportJSON() {
-    download(new Blob([JSON.stringify(P())], { type: 'application/json' }), fileBase() + '.json');
+  async function exportJSON() {
+    // 写真は別に保存しているので、書き出すファイルに含める(別の端末でも見られるように)
+    const photoData = {};
+    for (const ph of P().photos || []) {
+      const rec = ph.img && (await NZ.db.getPhoto(ph.img));
+      if (rec) photoData[ph.img] = { data: rec.data, w: rec.w, h: rec.h };
+    }
+    const out = Object.assign({}, P(), Object.keys(photoData).length ? { photoData } : {});
+    download(new Blob([JSON.stringify(out)], { type: 'application/json' }), fileBase() + '.json');
   }
-  function wallElevationSVG(w) {
-    if (!w) return null;
-    const fr = NZ.wallFrame(w), L = fr.L, H = Math.max(100, +w.height || NZ.DEFAULT_WALL_HEIGHT);
-    const scale = 0.18; // 1mm = 0.18px (SVG内部サイズ)
-    const W = L * scale + 80, Ht = H * scale + 80;
-    const wallColor = '#fff';
-    const segs = NZ.resolveSegments(w);
-    const openingHeight = (g) => {
-      const type = g.type;
-      if (type === 'window' || type === 'windowFixed' || type === 'windowSash') return 1200;
-      if (type === 'opening') return 2100;
-      if (type === 'sliding2' || type === 'fusuma' || type === 'shoji') return 2100;
-      return Math.min(2100, H - 300);
-    };
-    const y = (h) => Ht - 40 - h * scale;
-    const open = (g, y0) => {
-      const h = Math.min(openingHeight(g), H);
-      const x0 = g.s0 * scale + 40;
-      const x1 = g.s1 * scale + 40;
-      const yy = y0 - h * scale;
-      return `<rect x="${r2(x0)}" y="${r2(yy)}" width="${r2(x1 - x0)}" height="${r2(h * scale)}" fill="#dfeaf9" stroke="#777" stroke-width="1"/>`;
-    };
-    const labels = segs.map((g) => {
-      if (g.type === 'wall') return '';
-      const x = (g.s0 + g.s1) / 2 * scale + 40;
-      return `<text x="${r2(x)}" y="${r2((Ht - 40) - 5)}" font-size="16" text-anchor="middle" fill="#444">${esc(NZ.SEG_TYPES[g.type]?.label || '')}</text>`;
-    }).join('');
-    const dims = segs.filter((g) => g.type !== 'wall').map((g) => {
-      const x0 = g.s0 * scale + 40, x1 = g.s1 * scale + 40, mid = (x0 + x1) / 2;
-      return `<line x1="${r2(x0)}" y1="${r2(Ht - 25)}" x2="${r2(x1)}" y2="${r2(Ht - 25)}" stroke="#444" stroke-width="1"/>` +
-        `<line x1="${r2(x0)}" y1="${r2(Ht - 30)}" x2="${r2(x0)}" y2="${r2(Ht - 20)}" stroke="#444" stroke-width="1"/>` +
-        `<line x1="${r2(x1)}" y1="${r2(Ht - 30)}" x2="${r2(x1)}" y2="${r2(Ht - 20)}" stroke="#444" stroke-width="1"/>` +
-        `<text x="${r2(mid)}" y="${r2(Ht - 34)}" font-size="14" text-anchor="middle" fill="#444">${esc(Math.round(g.len))}mm</text>`;
-    }).join('');
-    const top = y(H), base = y(0);
-    const wall = `<rect x="40" y="${r2(y(H))}" width="${r2(L * scale)}" height="${r2(H * scale)}" fill="${wallColor}" stroke="#222" stroke-width="2"/>`;
-    const openings = segs.filter((g) => g.type !== 'wall').map((g) => open(g, y(H))).join('');
-    const html = `<svg xmlns="http://www.w3.org/2000/svg" width="${r2(W)}" height="${r2(Ht)}" viewBox="0 0 ${r2(W)} ${r2(Ht)}">
-      <rect x="0" y="0" width="100%" height="100%" fill="#fff"/>
-      <text x="40" y="26" font-size="16" font-weight="700" fill="#111">壁の展開図</text>
-      <text x="40" y="44" font-size="12" fill="#666">${esc(Math.round(L))}mm × ${esc(Math.round(H))}mm</text>
-      ${wall}${openings}
-      <line x1="40" y1="${r2(base)}" x2="${r2(L * scale + 40)}" y2="${r2(base)}" stroke="#222" stroke-width="1.5"/>
-      <line x1="40" y1="${r2(y(H))}" x2="40" y2="${r2(y(0))}" stroke="#222" stroke-width="1.5"/>
-      <line x1="${r2(L * scale + 40)}" y1="${r2(y(H))}" x2="${r2(L * scale + 40)}" y2="${r2(y(0))}" stroke="#222" stroke-width="1.5"/>
-      <line x1="40" y1="${r2(y(H))}" x2="${r2(L * scale + 40)}" y2="${r2(y(H))}" stroke="#222" stroke-width="1.5"/>
-      <text x="${r2(L * scale / 2 + 40)}" y="${r2(Ht - 8)}" font-size="14" text-anchor="middle" fill="#444">長さ ${esc(Math.round(L))}mm</text>
-      <text x="${r2(20)}" y="${r2((y(H) + y(0)) / 2)}" font-size="14" text-anchor="middle" fill="#444" transform="rotate(-90 20 ${r2((y(H) + y(0)) / 2)})">高さ ${esc(Math.round(H))}mm</text>
-      ${labels}${dims}
-    </svg>`;
-    return html;
+  // ---------- 展開図 ----------
+  function elevSheet() {
+    const rooms = NZ.elevRooms(P());
+    const room = rooms.find((r) => r.ids.includes(st.elevRoom)) || rooms[0];
+    if (!room) return null;
+    st.elevRoom = room.id;
+    return { rooms, room, sh: NZ.renderElevationSheet(P(), room) };
   }
-  function exportWallElevation() {
-    const wall = findEl(st.sel)?.el;
-    if (!wall) { toast('展開図を作成する壁を選択してください'); return; }
-    const svg = wallElevationSVG(wall);
-    if (!svg) return;
-    const wrap = document.createElement('div');
-    const id = `nz-elevation-${Date.now()}`;
-    wrap.className = 'preview-wrap';
-    wrap.innerHTML = `<div class="preview-bar"><span class="title">壁の展開図</span><button data-pv="png">PNG保存</button><button data-pv="svg">SVG保存</button><button data-pv="close">閉じる</button></div><div class="preview-scroll"><div id="${id}" class="elevation-preview"></div></div>`;
-    document.body.appendChild(wrap);
-    const box = wrap.querySelector(`#${id}`);
-    box.innerHTML = svg;
-    wrap.addEventListener('click', (ev) => {
-      const act = ev.target.dataset.pv;
-      if (act === 'close') wrap.remove();
-      if (act === 'svg') download(new Blob([svg], { type: 'image/svg+xml' }), `${fileBase()}_展開図.svg`);
-      if (act === 'png') {
-        const img = new Image();
-        img.onload = () => {
-          const c = document.createElement('canvas');
-          const xml = new XMLSerializer().serializeToString(box.firstChild);
-          const rect = box.firstChild.getBoundingClientRect();
-          c.width = Math.max(1, Math.round(rect.width * 2)); c.height = Math.max(1, Math.round(rect.height * 2));
-          const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-          const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
-          img.src = url;
-          img.onload = () => { ctx.drawImage(img, 0, 0, c.width, c.height); c.toBlob((b) => b && download(b, `${fileBase()}_展開図.png`), 'image/png'); };
-        };
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  function renderElev() {
+    const box = $('#elev-sheet'), selR = $('#elev-room');
+    // 平面図で室名を選んでいれば、その部屋
+    const sl = st.sel && findEl(st.sel);
+    if (sl && sl.coll === 'labels') st.elevRoom = sl.el.id;
+    const r = elevSheet();
+    if (!r) {
+      selR.innerHTML = ''; selR.disabled = true;
+      $('#elev-info').textContent = '';
+      box.innerHTML = `<div class="elev-empty"><b>展開図にする部屋がありません。</b><br>平面図で「室名」ツールを使い、部屋の中に室名(例: 洋室1)を置いてください。室名の位置から、部屋を囲む壁を探して A面(北)・B面(東)・C面(南)・D面(西)の展開図を作ります。</div>`;
+      return;
+    }
+    selR.disabled = false;
+    selR.innerHTML = r.rooms.map((x) => `<option value="${esc(x.id)}" ${x.id === r.room.id ? 'selected' : ''}>${esc(x.label)}${x.complete ? '' : '(壁が不足)'}</option>`).join('');
+    const bd = r.sh.bounds, miss = r.sh.faces.filter((f) => f.missing).map((f) => f.key + '面');
+    const size = bd.x0 !== null && bd.x1 !== null && bd.y0 !== null && bd.y1 !== null ? `内法 ${Math.round(bd.x1 - bd.x0)}×${Math.round(bd.y1 - bd.y0)}mm  ` : '';
+    $('#elev-info').textContent = `${size}CH ${Math.round(r.sh.CH)}mm  縮尺 1/${r.sh.S}${miss.length ? `  ※${miss.join('・')}の壁が見つかりません` : ''}`;
+    box.innerHTML = r.sh.svg.replace(/ width="\d+mm" height="\d+mm"/, '');
+  }
+  function setView(v) {
+    st.view = v;
+    $$('#view-switch button').forEach((x) => x.classList.toggle('on', x.dataset.view === v));
+    $('#mode-switch').classList.toggle('hidden', v !== 'plan');
+    $('#tools').classList.toggle('disabled', v !== 'plan' || st.mode === 'sheet');
+    $('#elev').classList.toggle('hidden', v !== 'elev');
+    $('#est').classList.toggle('hidden', v !== 'est');
+    if (v === 'elev') { st.temp = null; renderElev(); }
+    else if (v === 'est') { st.temp = null; NZ.bindEstimate(); NZ.renderEstimate(); }
+    else { renderAll(); fitView(); }
+  }
+  $$('#view-switch button').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+  $('#elev-room').addEventListener('change', (ev) => { st.elevRoom = ev.target.value; st.sel = null; renderElev(); });
+  $('#elev').addEventListener('click', (ev) => {
+    const act = ev.target.closest('[data-ev]')?.dataset.ev;
+    if (act) {
+      const r = elevSheet();
+      if (!r) { toast('展開図にする部屋がありません'); return; }
+      const name = `${fileBase()}_展開図_${r.room.name}`;
+      if (act === 'svg') download(new Blob([r.sh.svg], { type: 'image/svg+xml' }), name + '.svg');
+      if (act === 'dxf') {
+        try {
+          const d = NZ.elevDxf(P(), r.room);
+          download(new Blob([d.bytes], { type: 'application/dxf' }), name + '.dxf');
+          toast(`DXFを保存しました。JW-CADでは縮尺を 1/${d.S} にすると用紙どおりの大きさになります`, 6000);
+        } catch (e) { toast('DXFを作成できませんでした: ' + e.message, 5000); }
       }
-    });
-  }
+      if (act === 'png') svgToPng(r.sh, name + '.png');
+      if (act === 'print') {
+        $('#print-area').innerHTML = `<style>@page{size:${r.sh.W}mm ${r.sh.H}mm;margin:0}</style>` + r.sh.svg;
+        setTimeout(() => window.print(), 100);
+      }
+      return;
+    }
+    // 壁・建具をタップ → 平面図でその壁を編集
+    const hit = ev.target.closest('[data-wall]');
+    if (hit) {
+      const id = hit.getAttribute('data-wall');
+      setView('plan');
+      if (st.mode !== 'draw') $('#mode-switch [data-mode=draw]').click();
+      st.sel = id; renderAll(); editEl(id);
+    }
+  });
 
   // ---------- メニュー ----------
   const menu = $('#menu');
@@ -1811,9 +2099,11 @@
       preview: previewDialog,
       png: exportPNG,
       svg: exportSVG,
+      dxf: exportDXF,
       'json-save': exportJSON,
       'json-load': () => $('#file-json').click(),
-      elevation: exportWallElevation,
+      'photo-list': printPhotoList,
+      elevation: () => setView('elev'),
       settings: settingsDialog,
       help: helpDialog,
     }[a] || (() => {}))();
@@ -1828,6 +2118,10 @@
         const p = JSON.parse(fr.result);
         if (!p.meta || !p.walls) throw new Error('形式が違います');
         await saveNow();
+        if (p.photoData) {
+          for (const [id, r] of Object.entries(p.photoData)) await NZ.db.putPhoto({ id, projectId: p.id, data: r.data, w: r.w, h: r.h, createdAt: Date.now() });
+          delete p.photoData;
+        }
         openProject(p);
         toast('読み込みました');
       } catch (e) { toast('読み込めませんでした: ' + e.message); }
@@ -1842,15 +2136,17 @@
       html: `<div class="help">
         <h4>1. 準備</h4><p>メニュー →「設定」で会社名・作成者・許認可番号を登録します(表題欄の既定値)。</p>
         <h4>2. 下図を読み込む</h4><p>メニュー →「下図画像を読み込む」で間取り図の画像を読み込むか撮影します。「縮尺合せ」ツールで寸法の分かっている箇所をなぞり、実寸を入力します。</p>
-        <h4>3. 構造体・水回りを取り込む</h4><p>「構造壁・柱を自動検出」(端末内で処理)を実行します。オレンジ破線は未確定です。確認後「確定」してください。</p>
+        <h4>3. 構造体・水回りを取り込む</h4><p>「構造壁・柱を自動検出」(端末内で処理)${AI_ON ? 'または「AIで図面を解析」(構造壁・柱・キッチン/トイレ/浴室の位置)' : ''}を実行します。オレンジ破線は未確定です。確認後「確定」してください。</p>
         <h4>4. 実測値を入力</h4><p>「壁なぞり」ツールで、実測した壁をペンでなぞると寸法入力ウインドウが開きます。既存の壁をなぞると、その壁を実寸に修正します。壁の途中にドア・引き戸・折れ戸・窓を入れるときは「分割」に追加します(始点からの順)。吊元・開く方向も指定できます。</p>
         <h4>内法(実測値)の扱い</h4><p>入力する長さは壁の面から面までの内法です。図面上の壁の長さは「内法+両端でつながる壁の厚み分」で自動計算します。なぞった時点の位置は仮置きで、あとから端に壁をつないだり壁厚を変えたりすると自動で調整されます。一周して辻褄が合わない分は、寸法チェックで「ずれ」として表示されます。壁芯で入力したい場合は、入力ウインドウのチェックを外すか設定で変更します。</p>
-        <h4>5. 設備・家具・床</h4><p>「設備」ツールで位置をタップし、種類・サイズを選ぶか、品番欄に型番を控えられます(寸法は手入力)。「家具」ツールでテーブル・椅子などの置き家具や、棚・収納などの造作家具を置けます。「床」ツールで範囲を囲み、フローリング・カーペット・タイル・畳などを選びます。</p>
+        <h4>5. 設備・家具・床</h4><p>「設備」ツールで位置をタップし、種類・サイズを選ぶか${AI_ON ? '、品番を入力して「ネット検索」で寸法を取得します' : '、寸法を入力します'}。「家具」ツールでテーブル・椅子などの置き家具や、棚・収納などの造作家具を置けます。「床」ツールで範囲を囲み、フローリング・カーペット・タイル・畳などを選びます。</p>
         <h4>6. 通り芯・寸法・室名</h4><p>メニュー →「通り芯の設定」で A,B,C / 1,2,3 の通り芯を作ります(構造体から自動生成も可)。「寸法」ツールで任意の寸法、「室名」で部屋名を入れます。</p>
         <h4>7. 出力</h4><p>上部の「プレビュー」で印刷される図面そのものを確認し、印刷/PDF・PNGで保存します(SVGはメニューから)。「用紙」では用紙の上で図面を確認できます。</p>
         <h4>8. 寸法チェック(コーション)</h4><p>上部の「チェック」ボタンの数字は、辻褄の合わない寸法の件数です。壁のずれ、向かい合う壁の長さの違い、建具・設備が収まらない、ドアの開閉が当たる、下図との大きな差(入力ミスの疑い)などを図面上の⚠番号で示します。一覧の「測り直す」でその場で修正でき、「要再測リストを印刷」で現場用のチェックシートを出せます。許容差は設定で変更できます。</p>
-        <h4>β版テストについて</h4><ul><li>図面データはこの端末のブラウザ内に保存されます(サーバーには送信されません)。</li><li><b>ブラウザの履歴/サイトデータを消去すると図面も消えます。</b>こまめに、メニュー →「データ書き出し(.json)」で保存してください。端末を替えるときも同じ方法で移せます。</li><li>iPad/iPhone(Safari)は、共有ボタン →「ホーム画面に追加」して使うと、データが消えにくくなります。</li><li>AI機能は、β版では無効です。</li></ul>
-        <h4>端末別の操作</h4><ul><li><b>Windows/Mac(マウス)</b>: 左ドラッグで作図、右ドラッグ・中ボタンドラッグ・Spaceキー+ドラッグで画面移動、ホイールで拡大縮小。Ctrl(Macは⌘)+Zで元に戻す、Shift併用でやり直し、Deleteで選択を削除、Escで選択解除、Eで編集。</li><li><b>タブレット(ペンあり)</b>: ペンで作図、指1本で画面移動、指2本で拡大縮小。</li><li><b>タブレット(指のみ)</b>: 画面下の「指で描く」をONにすると、指で作図できます(画面移動は指2本)。</li></ul>
+        <h4>展開図</h4><p>部屋の中に「室名」を置き、画面上部の「展開図」を押すと、その部屋の A面(北)・B面(東)・C面(南)・D面(西)が1枚に並びます。壁や建具をタップすると平面図に戻って編集できます。建具の高さ・窓の腰高は、壁の編集画面の分割欄で入力します(空欄は標準値で「*」付き)。</p>
+        <h4>現場写真</h4><p>「写真」ツールで撮影した位置をタップし、撮影または写真を選んで、撮影した向きとメモを入れます。図面に番号と撮影方向の記号が付き、記号から写真を開けます。メニューの「写真一覧(写真台帳)を印刷」でA4に印刷できます。写真はこの端末の中にだけ保存されます。</p>
+        <h4>仕上表・概算見積</h4><p>画面上部の「見積」で、部屋ごとの床・壁・天井面積、巾木・廻り縁の長さ、建具・設備の個数が図面から自動で出ます。材料単価・工賃単価を入れると金額・消費税・合計を計算します。入れた単価はこの端末に記憶され、次の図面でも使われます。配管・解体・諸経費などは「＋行を追加」で入れます。</p>
+        <h4>写真で建具を測る</h4><p>壁を選んで「写真で測る」を押し、四隅が写るように壁を撮ります。四隅に○を合わせて実測した壁の幅・高さを入れると、写真の歪みを補正します。補正した画像でドア・窓を囲むと、位置・幅・腰高・高さを計算して壁に反映します。値は目安なので、実測できる箇所は実測値に直してください。</p>
         <h4>操作</h4><ul><li>ペン: 作図 / 指1本: 画面移動 / 指2本: 拡大縮小(「指で描く」をONにすると指でも作図)</li><li>長さ欄は「1820+910」のような計算式も使えます</li><li>データは端末内に自動保存されます。別端末へは「データ書き出し(.json)」で移せます</li></ul>
       </div>`,
       buttons: [{ label: '閉じる', cls: 'primary' }],
@@ -1862,8 +2158,8 @@
   $$('#mode-switch button').forEach((b) => (b.onclick = () => {
     st.mode = b.dataset.mode;
     $$('#mode-switch button').forEach((x) => x.classList.toggle('on', x === b));
-    $('#tools').classList.toggle('disabled', st.mode === 'sheet');
-    $('#hint').textContent = st.mode === 'sheet' ? '用紙プレビュー(印刷イメージ)。表題欄の内容は上部の図面名から編集できます。' : HINTS[st.tool];
+    $('#tools').classList.toggle('disabled', st.mode === 'sheet' || st.view !== 'plan');
+    $('#hint').textContent = st.mode === 'sheet' ? '印刷したときの見え方です' : HINTS[st.tool];
     renderUnderlay();
     renderAll();
     fitView();
@@ -1873,11 +2169,12 @@
   $('#btn-fit').onclick = fitView;
   $('#btn-preview').onclick = previewDialog;
   $('#proj-name').onclick = titleDialog;
-  ['#lay-grid', '#lay-dims', '#lay-zones'].forEach((s) => $(s).addEventListener('change', renderAll));
+  ['#lay-grid', '#lay-dims', '#lay-zones', '#lay-photos'].forEach((s) => $(s).addEventListener('change', renderAll));
   $('#lay-under').addEventListener('change', renderUnderlay);
   window.addEventListener('resize', updateView);
   document.addEventListener('keydown', (e) => {
     if (e.target.closest('input,textarea,select') || $('#modal-root').children.length) return;
+    if (st.view !== 'plan' && !(e.metaKey || e.ctrlKey)) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? $('#btn-redo').click() : $('#btn-undo').click(); }
     else if ((e.key === 'Delete' || e.key === 'Backspace') && st.sel) { removeEl(st.sel); st.sel = null; commit(); }
     else if (e.key === 'Escape') { st.sel = null; st.temp = null; renderOverlay(); renderSelbar(); }
@@ -1886,10 +2183,35 @@
   });
   document.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; });
 
+  // ---------- はじめての図面 ----------
+  function updateWelcome() {
+    const pr = P(), u = pr.underlay;
+    const empty = !['walls', 'columns', 'fixtures', 'labels', 'dims', 'floors', 'zones', 'photos'].some((c) => (pr[c] || []).length) && !(u && u.src);
+    const show = empty && !st.welcomeOff && st.view === 'plan' && st.mode === 'draw';
+    $('#welcome').classList.toggle('hidden', !show);
+    $('#hint').style.visibility = show ? 'hidden' : '';
+  }
+  $('#welcome').addEventListener('click', (ev) => {
+    const a = ev.target.closest('[data-wc]')?.dataset.wc;
+    if (!a) return;
+    if (a === 'wall') { st.welcomeOff = true; setTool('wall'); updateWelcome(); }
+    if (a === 'image') $('#file-img').click();
+    if (a === 'projects') projectsDialog();
+    if (a === 'help') helpDialog();
+  });
+  // ---------- 表示の切り替え ----------
+  const layers = $('#layers'), layBtn = $('#btn-layers');
+  layBtn.onclick = (ev) => { ev.stopPropagation(); layers.classList.toggle('hidden'); layBtn.classList.toggle('on', !layers.classList.contains('hidden')); };
+  document.addEventListener('pointerdown', (ev) => {
+    if (layers.classList.contains('hidden') || ev.target.closest('#layers, #btn-layers')) return;
+    layers.classList.add('hidden'); layBtn.classList.remove('on');
+  });
+
   // ---------- 起動 ----------
-  // ブラウザによる保存データの自動削除を起こりにくくする(対応ブラウザのみ)
-  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* noop */ }
   (async function init() {
+    if (!AI_ON) document.querySelectorAll('[data-ai]').forEach((el) => el.remove());
+    const ed = $('#edition');
+    if (ed && NZ.EDITION && NZ.EDITION.label) { ed.textContent = NZ.EDITION.label; ed.hidden = false; }
     let p = null;
     try {
       const last = localStorage.getItem('naiso-zumen.last');
@@ -1897,10 +2219,9 @@
     } catch (e) { /* noop */ }
     openProject(p || NZ.newProject(st.settings));
     setTool('select');
-    if (!p && !st.settings.company) setTimeout(() => helpDialog(), 300);
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
   })();
-  NZ.app = { st, commit, renderAll, fitView, openProject };
+  NZ.app = { st, commit, commitData, renderAll, fitView, openProject, toast, busy, editEl, num, download, fileBase };
 })();

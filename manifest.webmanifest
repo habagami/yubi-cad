@@ -1,10 +1,14 @@
 {
-  "name": "内装図面メーカー",
-  "short_name": "内装図面",
+  "name": "YUBI CAD",
+  "short_name": "YUBI CAD",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#1f2a37",
-  "theme_color": "#1f2a37",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
 }
