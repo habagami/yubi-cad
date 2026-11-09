@@ -2208,6 +2208,23 @@
   });
 
   // ---------- 起動 ----------
+  // 図面が1件もない人が初めて開いたときだけ、架空の間取りを下図にしたサンプル図面を作る(一度きり)
+  async function sampleProject() {
+    const KEY = 'naiso-zumen.sampleShown';
+    try {
+      if (localStorage.getItem(KEY)) return null;
+      const list = await NZ.db.listProjects();
+      if (list.length) { localStorage.setItem(KEY, '1'); return null; }
+      const blob = await (await fetch('sample-plan.jpg')).blob();
+      const src = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+      const p = NZ.newProject(st.settings);
+      p.meta.name = 'サンプル図面（架空の間取り）';
+      p.underlay = { src, w: 1328, h: 1913, x: 0, y: 0, mmPerPx: 12000 / 1328, opacity: 0.5, visible: true, calibrated: true };
+      localStorage.setItem(KEY, '1');
+      return p;
+    } catch (e) { return null; }
+  }
+
   (async function init() {
     if (!AI_ON) document.querySelectorAll('[data-ai]').forEach((el) => el.remove());
     const ed = $('#edition');
@@ -2217,8 +2234,10 @@
       const last = localStorage.getItem('naiso-zumen.last');
       if (last) p = await NZ.db.getProject(last);
     } catch (e) { /* noop */ }
-    openProject(p || NZ.newProject(st.settings));
+    const sample = p ? null : await sampleProject();
+    openProject(p || sample || NZ.newProject(st.settings));
     setTool('select');
+    if (sample) toast('サンプル図面を開きました。「壁をなぞる」で試せます');
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
