@@ -449,6 +449,8 @@
     updateView(); renderOverlay();
   }, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
+  // iPhoneのSafariで、図面の上の指の動きがページのスクロールや拡大に使われないようにする
+  $('#stage').addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
   function startGesture() {
     const pts = [...pointers.values()];
