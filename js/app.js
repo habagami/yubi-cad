@@ -2147,7 +2147,7 @@
         <h4>現場写真</h4><p>「写真」ツールで撮影した位置をタップし、撮影または写真を選んで、撮影した向きとメモを入れます。図面に番号と撮影方向の記号が付き、記号から写真を開けます。メニューの「写真一覧(写真台帳)を印刷」でA4に印刷できます。写真はこの端末の中にだけ保存されます。</p>
         <h4>仕上表・概算見積</h4><p>画面上部の「見積」で、部屋ごとの床・壁・天井面積、巾木・廻り縁の長さ、建具・設備の個数が図面から自動で出ます。材料単価・工賃単価を入れると金額・消費税・合計を計算します。入れた単価はこの端末に記憶され、次の図面でも使われます。配管・解体・諸経費などは「＋行を追加」で入れます。</p>
         <h4>写真で建具を測る</h4><p>壁を選んで「写真で測る」を押し、四隅が写るように壁を撮ります。四隅に○を合わせて実測した壁の幅・高さを入れると、写真の歪みを補正します。補正した画像でドア・窓を囲むと、位置・幅・腰高・高さを計算して壁に反映します。値は目安なので、実測できる箇所は実測値に直してください。</p>
-        <h4>操作</h4><ul><li>ペン: 作図 / 指1本: 画面移動 / 指2本: 拡大縮小(「指で描く」をONにすると指でも作図)</li><li>長さ欄は「1820+910」のような計算式も使えます</li><li>データは端末内に自動保存されます。別端末へは「データ書き出し(.json)」で移せます</li></ul>
+        <h4>操作</h4><ul><li>ペン・指1本: 作図 / 指2本: 画面の移動・拡大縮小(「指で描く」をOFFにすると、指1本で画面移動)</li><li>長さ欄は「1820+910」のような計算式も使えます</li><li>データは端末内に自動保存されます。別端末へは「データ書き出し(.json)」で移せます</li></ul>
       </div>`,
       buttons: [{ label: '閉じる', cls: 'primary' }],
     });
@@ -2226,6 +2226,11 @@
   }
 
   (async function init() {
+    // 指で描く: スマホ・タブレットで指1本の操作が図面の移動にならないよう、最初からオン(移動・拡大縮小は2本指)。
+    // 利用者がオフにした場合は、その設定を端末に覚えておく
+    const fingerOpt = $('#opt-finger');
+    try { const v = localStorage.getItem('naiso-zumen.finger'); fingerOpt.checked = v === null ? true : v === '1'; } catch (e) { fingerOpt.checked = true; }
+    fingerOpt.addEventListener('change', () => { try { localStorage.setItem('naiso-zumen.finger', fingerOpt.checked ? '1' : '0'); } catch (e) { /* 保存できない環境 */ } });
     if (!AI_ON) document.querySelectorAll('[data-ai]').forEach((el) => el.remove());
     const ed = $('#edition');
     if (ed && NZ.EDITION && NZ.EDITION.label) { ed.textContent = NZ.EDITION.label; ed.hidden = false; }
